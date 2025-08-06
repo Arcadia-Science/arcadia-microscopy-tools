@@ -8,6 +8,7 @@ license = { file = "LICENSE" }
 dependencies = [
     "nd2>=0.10.3",
     "numpy>=2.3.2",
+    "pytest>=8.4.1",
     "readlif>=0.6.6",
     "scikit-image>=0.25.2",
     "torch>=2.8.0",
@@ -51,9 +52,6 @@ dev = [
 ]
 lint = [
     "ruff>=0.12.7",
-]
-test = [
-    "pytest>=8.4.1",
 ]
 
 [tool.ruff.lint.isort]

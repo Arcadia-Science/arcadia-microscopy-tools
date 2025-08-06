@@ -44,6 +44,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "nd2" },
     { name = "numpy" },
+    { name = "pytest" },
     { name = "readlif" },
     { name = "scikit-image" },
     { name = "torch" },
@@ -57,14 +58,12 @@ dev = [
 lint = [
     { name = "ruff" },
 ]
-test = [
-    { name = "pytest" },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "nd2", specifier = ">=0.10.3" },
     { name = "numpy", specifier = ">=2.3.2" },
+    { name = "pytest", specifier = ">=8.4.1" },
     { name = "readlif", specifier = ">=0.6.6" },
     { name = "scikit-image", specifier = ">=0.25.2" },
     { name = "torch", specifier = ">=2.8.0" },
@@ -76,7 +75,7 @@ dev = [
     { name = "jupyterlab", specifier = ">=4.4.5" },
 ]
 lint = [{ name = "ruff", specifier = ">=0.12.7" }]
-test = [{ name = "pytest", specifier = ">=8.4.1" }]
+test = []
 
 [[package]]
 name = "argon2-cffi"
