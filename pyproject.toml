@@ -5,7 +5,14 @@ description = "Python package for processing large-scale microscopy datasets gen
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
-dependencies = []
+dependencies = [
+    "nd2>=0.10.3",
+    "numpy>=2.3.2",
+    "pytest>=8.4.1",
+    "readlif>=0.6.6",
+    "scikit-image>=0.25.2",
+    "torch>=2.8.0",
+]
 
 
 [tool.ruff]
@@ -37,6 +44,15 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[dependency-groups]
+dev = [
+    "jupyter>=1.1.1",
+    "jupyterlab>=4.4.5",
+]
+lint = [
+    "ruff>=0.12.7",
+]
 
 [tool.ruff.lint.isort]
 order-by-type = true
