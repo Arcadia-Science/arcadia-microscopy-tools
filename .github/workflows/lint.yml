@@ -4,11 +4,9 @@ on:
   push:
     branches:
       - main
-      - feat/*
   pull_request:
     branches:
       - main
-      - feat/*
 
 jobs:
   lint:
@@ -21,34 +19,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Cache Poetry install
-        uses: actions/cache@v3
-        with:
-          path: ~/.local
-          key: poetry-1.8.3-0
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pre-commit==3.5.0 ruff==0.4.8
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-        with:
-          version: 1.8.3
-          virtualenvs-create: true
-          virtualenvs-in-project: true
+      - name: Run Ruff
+        run: ruff check --output-format=github .
 
-      # Uncomment this step and the `if` clause in the next step
-      # to cache Poetry dependencies.
-      # (The caching was causing intermittent CI failures in August 2024, so it was disabled.)
-      # - name: Cache Poetry dependencies
-      #   id: cache-poetry-deps
-      #   uses: actions/cache@v3
-      #   with:
-      #     path: .venv
-      #     key: pydeps-${{ hashFiles('**/poetry.lock') }}
-      - name: Install dependencies
-        run: poetry install --no-interaction --no-root
-        # if: steps.cache-poetry-deps.outputs.cache-hit != 'true'
-
-      - name: Run linting
-        run: poetry run make lint
-
-      - name: Run type checking
-        run: poetry run make typecheck
+      - name: Run Ruff formatter
+        run: ruff format --check .
