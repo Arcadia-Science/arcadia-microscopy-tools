@@ -1,6 +1,7 @@
 from typing import Any
 
 import numpy as np
+
 from arcadia_microscopy_tools import Channel, MicroscopyImage
 
 

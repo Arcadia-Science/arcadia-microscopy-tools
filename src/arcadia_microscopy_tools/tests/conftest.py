@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+
 from arcadia_microscopy_tools import MicroscopyImage
 
 
@@ -57,9 +58,7 @@ def zstack_image(valid_zstack_nd2_path):
 
 
 @pytest.fixture
-def path_list(
-    valid_multichannel_nd2_path, valid_timelapse_nd2_path, valid_zstack_nd2_path
-):
+def path_list(valid_multichannel_nd2_path, valid_timelapse_nd2_path, valid_zstack_nd2_path):
     """Create a list of file paths for testing batch operations."""
     paths = [
         valid_multichannel_nd2_path,
