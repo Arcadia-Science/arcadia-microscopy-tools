@@ -27,9 +27,7 @@ def test_batch_generator_properties(path_list):
 def test_batch_generator_with_shuffle(path_list):
     """Test that shuffle does not modify the original list of file paths."""
     # Use fixed random state for reproducibility
-    batch_generator = ImageBatchGenerator(
-        path_list, batch_size=3, shuffle=True, random_state=42
-    )
+    batch_generator = ImageBatchGenerator(path_list, batch_size=3, shuffle=True, random_state=42)
 
     # Store original paths to verify they don't change
     original_paths = path_list.copy()
@@ -51,8 +49,7 @@ def test_sample_metadata_list(path_list):
     """Test that sample metadata is correctly associated with images."""
     # Create test metadata for each path
     sample_metadata_list = [
-        {"sample_id": f"sample_{i}", "condition": f"condition_{i}"}
-        for i in range(len(path_list))
+        {"sample_id": f"sample_{i}", "condition": f"condition_{i}"} for i in range(len(path_list))
     ]
 
     # Create batch generator with sample metadata

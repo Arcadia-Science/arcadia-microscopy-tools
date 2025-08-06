@@ -143,8 +143,16 @@ class ImageBatch:
     segmentation_masks_dict: dict[Channel, ScalarArray] | None = field(default_factory=dict)
 
     def __post_init__(self):
+        """Set default num_workers if not provided, otherwise validate the provided value."""
         num_cores = CPU_COUNT or 1
-        self.num_workers = min(self.batch_size, num_cores * 10)
+        max_reasonable_workers = num_cores * 10
+
+        if self.num_workers is None:
+            # Use default calculation when no explicit value provided
+            self.num_workers = min(self.batch_size, max_reasonable_workers)
+        else:
+            # Cap explicit num_workers to reasonable bounds
+            self.num_workers = min(self.num_workers, max_reasonable_workers, self.batch_size)
 
     def __len__(self) -> int:
         """Return the number of images in the batch."""

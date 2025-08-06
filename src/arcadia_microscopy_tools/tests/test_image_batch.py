@@ -35,6 +35,10 @@ def test_image_batch_properties(image_list):
     num_expected_workers = min(len(image_list), num_available_workers)
     assert batch.num_workers == num_expected_workers
 
+    # Test explicit worker count
+    custom_batch = ImageBatch(image_list, num_workers=3)
+    assert custom_batch.num_workers == min(3, num_expected_workers)
+
     # Test excessive worker count (should be capped)
     excessive_batch = ImageBatch(image_list, num_workers=1000)
     assert excessive_batch.num_workers == num_expected_workers
