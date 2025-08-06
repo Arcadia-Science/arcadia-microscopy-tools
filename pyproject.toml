@@ -11,6 +11,7 @@ dependencies = [
     "pytest>=8.4.1",
     "readlif>=0.6.6",
     "scikit-image>=0.25.2",
+    "scikit-learn>=1.7.1",
     "torch>=2.7.1",
 ]
 
