@@ -38,6 +38,18 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 
+[dependency-groups]
+dev = [
+    "jupyter>=1.1.1",
+    "jupyterlab>=4.4.5",
+]
+lint = [
+    "ruff>=0.12.7",
+]
+test = [
+    "pytest>=8.4.1",
+]
+
 [tool.ruff.lint.isort]
 order-by-type = true
 no-lines-before = ["future", "standard-library"]
