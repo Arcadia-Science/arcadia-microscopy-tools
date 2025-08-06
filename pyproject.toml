@@ -7,11 +7,11 @@ requires-python = ">=3.12"
 license = { file = "LICENSE" }
 dependencies = [
     "nd2>=0.10.3",
-    "numpy>=2.3.2",
+    "numpy<2.1",
     "pytest>=8.4.1",
     "readlif>=0.6.6",
     "scikit-image>=0.25.2",
-    "torch>=2.8.0",
+    "torch>=2.7.1",
 ]
 
 
