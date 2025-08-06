@@ -58,6 +58,7 @@ target/
 # Pycharm and VSCode
 .idea/
 venv/
+.vscode/
 
 # Jupyter notebook checkpoints
 .ipynb_checkpoints
