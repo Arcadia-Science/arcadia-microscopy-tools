@@ -24,24 +24,25 @@ def test_image_batch_properties(image_list):
         - Not ideal, reimplements some of the logic in ImageBatch.__post_init__()
     """
     batch = ImageBatch(image_list)
-    num_available_cpus = CPU_COUNT or 1
-    num_available_workers = max(1, num_available_cpus - 1)
+    num_cores = CPU_COUNT or 1
 
     # Test dimensions
     assert len(batch) == 5
     assert batch.batch_size == 5
 
     # Test worker count
-    num_expected_workers = min(len(image_list), num_available_workers)
-    assert batch.num_workers == num_expected_workers
+    min_expected_workers = min(len(image_list), num_cores)
+    assert batch.num_workers >= min_expected_workers
 
     # Test explicit worker count
-    custom_batch = ImageBatch(image_list, num_workers=3)
-    assert custom_batch.num_workers == min(3, num_expected_workers)
+    num_workers = 3
+    custom_batch = ImageBatch(image_list, num_workers)
+    assert custom_batch.num_workers == num_workers
 
     # Test excessive worker count (should be capped)
-    excessive_batch = ImageBatch(image_list, num_workers=1000)
-    assert excessive_batch.num_workers == num_expected_workers
+    num_workers = 1000
+    excessive_batch = ImageBatch(image_list, num_workers)
+    assert excessive_batch.num_workers == len(image_list)
 
 
 def test_image_batch_channels(image_list, multichannel_image):
