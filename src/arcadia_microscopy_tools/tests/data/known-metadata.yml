@@ -1,0 +1,89 @@
+example-multichannel.nd2:
+  BF:
+    height_px: 256
+    width_px: 256
+    thickness_px: 1
+    pixel_size_um:
+      - 0.323390342594048
+      - 0.323390342594048
+    z_step_size_um: 1.0
+    magnification: 20.0
+    numerical_aperture: 0.75
+    zoom: 1.0
+    binning: 1x1
+    exposure_time_ms: 20.0
+    laser_power_pct: 5.0
+  DAPI:
+    height_px: 256
+    width_px: 256
+    thickness_px: 1
+    pixel_size_um:
+     - 0.323390342594048
+     - 0.323390342594048
+    z_step_size_um: 1.0
+    magnification: 20.0
+    numerical_aperture: 0.75
+    zoom: 1.0
+    binning: 1x1
+    exposure_time_ms: 1000.0
+    laser_power_pct: 84.0
+  FITC:
+    height_px: 256
+    width_px: 256
+    thickness_px: 1
+    pixel_size_um:
+      - 0.323390342594048
+      - 0.323390342594048
+    z_step_size_um: 1.0
+    magnification: 20.0
+    numerical_aperture: 0.75
+    zoom: 1.0
+    binning: 1x1
+    exposure_time_ms: 1000.0
+    laser_power_pct: 95.7
+  TRITC:
+    height_px: 256
+    width_px: 256
+    thickness_px: 1
+    pixel_size_um:
+      - 0.323390342594048
+      - 0.323390342594048
+    z_step_size_um: 1.0
+    magnification: 20.0
+    numerical_aperture: 0.75
+    zoom: 1.0
+    binning: 1x1
+    exposure_time_ms: 1000.0
+    laser_power_pct: 33.5
+
+example-timelapse.nd2:
+  FITC:
+    height_px: 64
+    width_px: 64
+    thickness_px: 1
+    pixel_size_um:
+      - 0.325
+      - 0.325
+    z_step_size_um: 1.0
+    magnification: 40.0
+    numerical_aperture: 0.95
+    zoom: 1.0
+    binning: 2x2
+    exposure_time_ms: 500.0
+    laser_power_pct: 95.7
+
+example-zstack.nd2:
+  FITC:
+    height_px: 128
+    width_px: 128
+    thickness_px: 11
+    pixel_size_um:
+      - 0.323390342594048
+      - 0.323390342594048
+    z_step_size_um: 6.0
+    magnification: 20.0
+    numerical_aperture: 0.75
+    zoom: 1.0
+    binning: 1x1
+    exposure_time_ms: 500.0
+    laser_power_pct: 95.7
