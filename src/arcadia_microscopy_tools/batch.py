@@ -269,17 +269,20 @@ class ImageBatch:
         self,
         model: SegmentationModel,
         channel: Channel | str = Channel.BF,
+        cellpose_batch_size: int = 8,
         **cellpose_kwargs: dict[str, Any],
     ) -> ImageBatch:
         """Run cell segmentation on all images in the batch using a segmentation model.
 
-        Applies cell segmentation to pre-processed intensity data for the specified channel.
+        Applies cell segmentation to processed intensity data for the specified channel.
         Requires that `apply_pipeline` has been called first to populate the
         processed_intensities_dict.
 
         Args:
             model: A SegmentationModel instance to use for cell segmentation.
             channel: The channel to segment, either as Channel enum or string name.
+            cellpose_batch_size: Number of 256x256 patches to run simultaneously on the GPU (not
+                to be confused with self.batch_size). Default is 8.
             **cellpose_kwargs:
                 Additional keyword arguments to pass to the model's run method,
                 such as min_size.
@@ -300,7 +303,7 @@ class ImageBatch:
         Examples:
             >>> batch = ImageBatch.from_paths(["image1.nd2", "image2.nd2"])
             >>> pipeline = Pipeline([...])
-            >>> model = SegmentationModel(model_type="cyto3", diameter=20)
+            >>> model = SegmentationModel(...)
             >>> batch.apply_pipeline(pipeline, Channel.BF)
             >>> batch.segment(model, Channel.BF, flow_threshold=0.4)
             >>> masks = batch.segmentation_masks_dict[Channel.BF]
@@ -309,9 +312,14 @@ class ImageBatch:
         if isinstance(channel, str):
             channel = Channel[channel]
 
-        # Get processed intensities as a list to pass to Cellpose
+        # Get processed intensities as a list to pass to SegmentationModel
         batch_intensities = [frame for frame in self.processed_intensities_dict[channel]]
+
         # Run Cellpose
-        masks = model.run(batch_intensities, self.batch_size, **cellpose_kwargs)
+        masks = model.run(
+            batch_intensities,
+            batch_size=cellpose_batch_size,
+            **cellpose_kwargs,
+        )
         self.segmentation_masks_dict[channel] = masks
         return self
