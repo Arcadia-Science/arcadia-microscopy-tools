@@ -143,4 +143,4 @@ class SegmentationModel:
             logger.error(f"Cellpose segmentation failed: {e}")
             raise RuntimeError from e
 
-        return masks_uint16.astype(np.int64)
+        return np.array(masks_uint16, dtype=np.int64)
