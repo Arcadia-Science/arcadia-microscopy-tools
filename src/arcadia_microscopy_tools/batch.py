@@ -309,8 +309,8 @@ class ImageBatch:
         if isinstance(channel, str):
             channel = Channel[channel]
 
-        # Extract pre-processed intensities
-        batch_intensities = self.processed_intensities_dict[channel].copy()
+        # Get processed intensities as a list to pass to Cellpose
+        batch_intensities = [frame for frame in self.processed_intensities_dict[channel]]
         # Run Cellpose
         masks = model.run(batch_intensities, self.batch_size, **cellpose_kwargs)
         self.segmentation_masks_dict[channel] = masks
