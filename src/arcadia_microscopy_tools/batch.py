@@ -9,6 +9,7 @@ import numpy as np
 import sklearn
 
 from .microscopy import Channel, MicroscopyImage
+from .model import SegmentationModel
 from .pipeline import Pipeline
 from .typing import ScalarArray, UInt16Array
 from .utils import parallelized
@@ -266,22 +267,25 @@ class ImageBatch:
 
     def segment(
         self,
-        model,
+        model: SegmentationModel,
         channel: Channel | str = Channel.BF,
-        **kwargs,
+        cellpose_batch_size: int = 8,
+        **cellpose_kwargs: dict[str, Any],
     ) -> ImageBatch:
         """Run cell segmentation on all images in the batch using a segmentation model.
 
-        Applies cell segmentation to pre-processed intensity data for the specified channel.
+        Applies cell segmentation to processed intensity data for the specified channel.
         Requires that `apply_pipeline` has been called first to populate the
         processed_intensities_dict.
 
         Args:
             model: A SegmentationModel instance to use for cell segmentation.
             channel: The channel to segment, either as Channel enum or string name.
-            **kwargs:
-                Additional keyword arguments to pass to the model's run_cellpose method,
-                such as diameter, flow_threshold, or mask_threshold.
+            cellpose_batch_size: Number of 256x256 patches to run simultaneously on the GPU (not
+                to be confused with self.batch_size). Default is 8.
+            **cellpose_kwargs:
+                Additional keyword arguments to pass to the model's run method,
+                such as min_size.
 
         Returns:
             self: This ImageBatch with segmentation results stored in segmentation_masks_dict.
@@ -299,7 +303,7 @@ class ImageBatch:
         Examples:
             >>> batch = ImageBatch.from_paths(["image1.nd2", "image2.nd2"])
             >>> pipeline = Pipeline([...])
-            >>> model = SegmentationModel(model_type="cyto3", diameter=20)
+            >>> model = SegmentationModel(...)
             >>> batch.apply_pipeline(pipeline, Channel.BF)
             >>> batch.segment(model, Channel.BF, flow_threshold=0.4)
             >>> masks = batch.segmentation_masks_dict[Channel.BF]
@@ -308,9 +312,14 @@ class ImageBatch:
         if isinstance(channel, str):
             channel = Channel[channel]
 
-        # Extract pre-processed intensities
-        intensities = self.processed_intensities_dict[channel].copy()
+        # Get processed intensities as a list to pass to SegmentationModel
+        batch_intensities = [frame for frame in self.processed_intensities_dict[channel]]
+
         # Run Cellpose
-        masks = model.run_cellpose(intensities, return_all=False, **kwargs)
+        masks = model.run(
+            batch_intensities,
+            batch_size=cellpose_batch_size,
+            **cellpose_kwargs,
+        )
         self.segmentation_masks_dict[channel] = masks
         return self
