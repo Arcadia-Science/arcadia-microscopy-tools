@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import torch
@@ -105,7 +106,7 @@ class SegmentationModel:
         self,
         batch_intensities: FloatArray,
         batch_size: int = 16,
-        **cellpose_kwargs,
+        **cellpose_kwargs: dict[str, Any],
     ) -> IntArray:
         """Run cell segmentation using Cellpose.
 
