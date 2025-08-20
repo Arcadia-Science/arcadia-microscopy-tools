@@ -104,17 +104,18 @@ class SegmentationModel:
 
     def run(
         self,
-        batch_intensities: FloatArray,
-        batch_size: int = 16,
+        batch_intensities: list[FloatArray],
+        batch_size: int = 8,
         **cellpose_kwargs: dict[str, Any],
     ) -> IntArray:
         """Run cell segmentation using Cellpose.
 
         Args:
-            batch_intensities: Input batch of image intensities with shape (batch, height, width).
-                Intensity values should be normalized floats, typically in range [0, 1].
-            batch_size: Number of images to process simultaneously. Larger values use more
-                memory but may be faster. Default is 16.
+            batch_intensities: Input list of image intensities with shape ([channel], height, width)
+                where the channel dimension is optional. Intensity values should be normalized
+                floats, typically in range [0, 1].
+            batch_size: Number of 256x256 patches to run simultaneously on the GPU
+                (can make smaller or bigger depending on GPU memory usage). Default is 8.
             **cellpose_kwargs: Additional keyword arguments passed to CellposeModel.eval().
                 Common options include 'min_size' (minimum cell size in pixels).
 
@@ -128,6 +129,18 @@ class SegmentationModel:
         See also:
             - For full list of optional cellpose_kwargs, see:
               https://cellpose.readthedocs.io/en/latest/api.html#id0
+
+        Notes:
+            - Input for batch processing must be a list for Cellpose to recognize that the input is
+              multiple images. Otherwise Cellpose will misinterpret the batch dimension as channels
+              and truncate to the first 3.
+            - Cellpose can scale well on CUDA GPUs with large batches, the benchmarks show speed
+              improvements with batch sizes up to 32. But Apple's PyTorch MPS backend isn't as
+              optimized for deep CNN inference throughput, so increasing batch size quickly hits
+              bandwidth/kernel-scheduling limits and stops helping. This is a known theme in MPS
+              discussions/benchmarks.
+            - At the time of writing, Cellpose documentation for v4.x contains a fair amount of
+              mistakes -- a lot of the docstrings haven't been updated since v3.
         """
         try:
             masks_uint16, *_ = self.cellpose_model.eval(
