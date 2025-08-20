@@ -130,7 +130,7 @@ class SegmentationModel:
               https://cellpose.readthedocs.io/en/latest/api.html#id0
         """
         try:
-            masks_uint16, _flows, _styles, _imgs = self.cellpose_model.eval(
+            masks_uint16, *_ = self.cellpose_model.eval(
                 x=batch_intensities,
                 batch_size=batch_size,
                 diameter=self.cell_diameter_px,
