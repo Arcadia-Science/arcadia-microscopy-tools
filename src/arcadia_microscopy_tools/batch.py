@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import sklearn
 
+from .mask_processing import SegmentationMask
 from .microscopy import Channel, MicroscopyImage
 from .model import SegmentationModel
 from .pipeline import Pipeline
@@ -269,7 +270,8 @@ class ImageBatch:
         self,
         model: SegmentationModel,
         channel: Channel | str = Channel.BF,
-        cellpose_batch_size: int = 8,
+        cellpose_batch_size: int = 4,
+        remove_edge_cells: bool = True,
         **cellpose_kwargs: dict[str, Any],
     ) -> ImageBatch:
         """Run cell segmentation on all images in the batch using a segmentation model.
@@ -321,5 +323,16 @@ class ImageBatch:
             batch_size=cellpose_batch_size,
             **cellpose_kwargs,
         )
-        self.segmentation_masks_dict[channel] = masks
+
+        # Create segmentation masks
+        segmentation_masks = []
+        for mask_image, intensity_image in zip(masks, batch_intensities, strict=True):
+            segmentation_mask = SegmentationMask(
+                mask_image,
+                intensity_image,
+                remove_edge_cells,
+            )
+            segmentation_masks.append(segmentation_mask)
+
+        self.segmentation_masks_dict[channel] = segmentation_masks
         return self
