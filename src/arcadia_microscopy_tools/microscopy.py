@@ -1,6 +1,5 @@
 from __future__ import annotations
 import re
-import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
@@ -87,16 +86,19 @@ class ChannelMetadata:
 
     channel: Channel | None = None
     timestamp: datetime | None = None
+    dimensions: str | None = None
     height_px: int | None = None
     width_px: int | None = None
     thickness_px: int | None = None
     pixel_size_um: tuple[float, float] | None = None
     z_step_size_um: float | None = None
+    objective: str | None = None
     magnification: float | None = None
     numerical_aperture: float | None = None
     zoom: float | None = None
     binning: str | None = None
     exposure_time_ms: float | None = None
+    period_ms: float | None = None
     laser_power_pct: float | None = None
 
     @classmethod
@@ -135,23 +137,28 @@ class ChannelMetadata:
 
         # Parse these specific metadata fields from the section of `text_info`
         timestamp = _parse_timestamp_from_text_info(text_info)
+        dimensions = _parse_dimensions_from_text_info(text_info)
         binning = _parse_binning_from_sample(sample_text)
         exposure_time_ms = _parse_exposure_time_from_sample(sample_text)
+        period_ms = _parse_period_from_plane(plane_text)
         laser_power_pct = _parse_laser_power_from_plane(plane_text)
 
         return cls(
             channel=channel,
             timestamp=timestamp,
+            dimensions=dimensions,
             height_px=nd2_channel.volume.voxelCount[0],
             width_px=nd2_channel.volume.voxelCount[1],
             thickness_px=nd2_channel.volume.voxelCount[2],
             pixel_size_um=nd2_channel.volume.axesCalibration[:2],
             z_step_size_um=nd2_channel.volume.axesCalibration[2],
+            objective=nd2_channel.microscope.objectiveName,
             magnification=nd2_channel.microscope.objectiveMagnification,
             numerical_aperture=nd2_channel.microscope.objectiveNumericalAperture,
             zoom=nd2_channel.microscope.zoomMagnification,
             binning=binning,
             exposure_time_ms=exposure_time_ms,
+            period_ms=period_ms,
             laser_power_pct=laser_power_pct,
         )
 
@@ -164,6 +171,7 @@ class ImageMetadata:
     """
 
     channels: list[ChannelMetadata]
+    dimensions: str
 
     @classmethod
     def from_nd2_path(
@@ -180,6 +188,9 @@ class ImageMetadata:
         """
         with nd2.ND2File(nd2_path) as nd2f:
             num_channels = nd2f.metadata.contents.channelCount
+            text_info = nd2f.text_info
+
+        # Collect channel metadata
         channel_metadatas = []
         for i in range(num_channels):
             channel_metadata = ChannelMetadata.from_nd2_path(
@@ -187,7 +198,9 @@ class ImageMetadata:
                 channel_index=i,
             )
             channel_metadatas.append(channel_metadata)
-        return cls(channel_metadatas)
+
+        dimensions = _parse_dimensions_from_text_info(text_info)
+        return cls(channel_metadatas, dimensions)
 
 
 @dataclass
@@ -276,25 +289,6 @@ class MicroscopyImage:
         return self.get_intensities_from_channel(Channel.BF)
 
 
-def _extract_plane_from_text_info(
-    text_info: str,
-    plane_index: int = 1,
-) -> str:
-    """Extract a specific "Plane" from `nd2.ND2File.text_info` metadata.
-
-    "Plane" is a section of metadata within `text_info["description"]` that includes relevant
-    fields such as binning, exposure time, and laser power. The "Plane #" convention is only used
-    for multi-channel ND2 files. For single-channel ND2 files we simply return all the text in
-    `text_info["description"]`.
-    """
-    plane_regex = rf"Plane #{plane_index}:[\s\S]*?(?=Plane #\d|$)"
-    plane_match = re.search(plane_regex, text_info["description"])
-    if not plane_match:  # only one channel
-        return text_info["description"]
-    else:
-        return plane_match.group(0)
-
-
 def _extract_sample_from_text_info(
     text_info: str,
     sample_index: int = 1,
@@ -306,6 +300,48 @@ def _extract_sample_from_text_info(
     easier to parse, but less comprehensive. The "Sample #" convention is only used
     for multi-channel ND2 files. For single-channel ND2 files we simply return all the text in
     `text_info["capturing"]`.
+
+    Single-channel example:
+    >>> with nd2.ND2File(nd2_path) as single_channel_nd2_file:
+            text_info = single_channel_nd2_file.text_info
+    >>> print(text_info)
+        {'capturing': 'Fusion, SN:500651\r\n'.      <-- only channel
+                      'Exposure: 2 ms\r\n'
+                      'Binning: 4x4\r\n'
+                      'Scan Mode: Standard\r\n'
+                      'Temperature: -8.0°C\r\n'
+                      'Denoise.ai OFF\r\n'
+                      'Clarify.ai OFF',
+        'date': '8/19/2025  10:06:25 AM',
+        'description': 'Metadata:\r\n'
+                       'Dimensions: T(316)\r\n'
+                       ...
+        }
+
+    Multichannel example:
+    >>> with nd2.ND2File(nd2_path) as multichannel_nd2_file:
+            text_info = multichannel_nd2_file.text_info
+    >>> print(text_info)
+        {'capturing': 'Fusion, SN:500651\r\n'
+                      'Sample 1:\r\n'                  <-- 1st channel
+                      '  Exposure: 50 ms\r\n'
+                      '  Binning: 1x1\r\n'
+                      '  Scan Mode: Standard\r\n'
+                      '  Temperature: -8.0°C\r\n'
+                      '  Denoise.ai OFF\r\n'
+                      '  Clarify.ai OFF\r\n'
+                      'Sample 2:\r\n'                  <-- 2nd channel
+                      '  Exposure: 300 ms\r\n'
+                      '  Binning: 1x1\r\n'
+                      '  Scan Mode: Ultra-quiet\r\n'
+                      '  Temperature: -8.0°C\r\n'
+                      '  Denoise.ai OFF\r\n'
+                      '  Clarify.ai OFF',
+        'date': '7/31/2025  3:30:59 PM',
+        'description': 'Metadata:\r\n'
+                       'Dimensions: λ(2)\r\n'
+                       ...
+        }
     """
     sample_regex = rf"Sample {sample_index}:[\s\S]*?(?=Sample \d|$)"
     sample_match = re.search(sample_regex, text_info["capturing"])
@@ -315,15 +351,93 @@ def _extract_sample_from_text_info(
         return sample_match.group(0)
 
 
-def _parse_timestamp_from_text_info(text_info) -> datetime:
+def _extract_plane_from_text_info(
+    text_info: str,
+    plane_index: int = 1,
+) -> str:
+    """Extract a specific "Plane" from `nd2.ND2File.text_info` metadata.
+
+    "Plane" is a section of metadata within `text_info["description"]` that includes relevant
+    fields such as binning, exposure time, and laser power. The "Plane #" convention is only used
+    for multi-channel ND2 files. For single-channel ND2 files we simply return all the text in
+    `text_info["description"]`.
+
+    Single-channel example:
+    >>> with nd2.ND2File(nd2_path) as single_channel_nd2_file:
+            text_info = single_channel_nd2_file.text_info
+    >>> print(text_info)
+        {...
+        'date': '8/19/2025  10:06:25 AM',
+        'description': 'Metadata:\r\n'                 <-- only channel
+                        'Dimensions: T(316)\r\n'
+                        'Camera Name: Fusion, SN:500651\r\n'
+                        'Numerical Aperture: 0.2\r\n'
+                        'Refractive Index: 1\r\n'
+                        ' Name: Mono\r\n'
+                        ' Component Count: 1\r\n'
+                        ' Modality: Widefield Fluorescence\r\n'
+                        ' Camera Settings:   Exposure: 2 ms\r\n'
+                        '  Binning: 4x4\r\n'
+                        ...
+                        'Time Loop: 316\r\n'
+                        '- Equidistant (Period 50 ms)',
+        'optics': 'PLAN APO λD 4x OFN25'}
+
+    Multichannel example:
+    >>> with nd2.ND2File(nd2_path) as multichannel_nd2_file:
+            text_info = multichannel_nd2_file.text_info
+    >>> print(text_info)
+        {...
+        'date': '7/31/2025  3:30:59 PM',
+        'description': 'Metadata:\r\n'
+                        'Dimensions: λ(2)\r\n'
+                        'Camera Name: Fusion, SN:500651\r\n'
+                        'Numerical Aperture: 0.75\r\n'
+                        'Refractive Index: 1\r\n'
+                        'Number of Picture Planes: 2\r\n'
+                        'Plane #1:\r\n'                <-- 1st channel
+                        ' Name: Mono\r\n'
+                        ' Component Count: 1\r\n'
+                        ' Modality: Widefield Fluorescence, Spinning Disk Confocal\r\n'
+                        ' Camera Settings:   Exposure: 50 ms\r\n'
+                        '  Binning: 1x1\r\n'
+                        ...
+                        'Plane #2:\r\n'                <-- 2nd channel
+                        ' Name: DAPI\r\n'
+                        ' Component Count: 1\r\n'
+                        ' Modality: Widefield Fluorescence, Spinning Disk Confocal\r\n'
+                        ' Camera Settings:   Exposure: 300 ms\r\n'
+                        '  Binning: 1x1\r\n'
+                        ...
+        'optics': 'Plan Apo λ 20x'}
+    """
+    plane_regex = rf"Plane #{plane_index}:[\s\S]*?(?=Plane #\d|$)"
+    plane_match = re.search(plane_regex, text_info["description"])
+    if not plane_match:  # only one channel
+        return text_info["description"]
+    else:
+        return plane_match.group(0)
+
+
+def _parse_timestamp_from_text_info(text_info: str) -> datetime:
     """Parse timestamp from `nd2.ND2File.text_info`."""
     timestamp = text_info["date"]
     return datetime.strptime(timestamp, "%m/%d/%Y %I:%M:%S %p")
 
 
+def _parse_dimensions_from_text_info(text_info: str) -> str:
+    """"""
+    dimensions = ""
+    description = text_info["description"]
+    for line in description.splitlines():
+        if "Dimensions" in line:
+            dimensions = line.split(":")[1].strip()
+    return dimensions
+
+
 def _parse_binning_from_sample(sample_text: str) -> str:
     """Parse binning from "Sample" section of `nd2.ND2File.text_info`."""
-    binning = None
+    binning = ""
     for line in sample_text.splitlines():
         if "Binning" in line:
             binning = line.split(":")[1].strip()
@@ -331,34 +445,40 @@ def _parse_binning_from_sample(sample_text: str) -> str:
 
 
 def _parse_exposure_time_from_sample(sample_text: str) -> float | None:
-    """Parse exposure time from 'Sample' section of text_info and convert to milliseconds.
+    """Parse exposure time from 'Plane' section of text_info.
 
-    Returns None if exposure time is not found in the text.
-    """
-    # Search for exposure time
-    search_pattern = r"Exposure: (\d+(?:\.\d+)?) (\w+)"
+    Returns None if the exposure time is not found in the text."""
+    exposure_time_ms = None
+    pattern = r"Exposure: (\d+(?:\.\d+)?) (\w+)"
     for line in sample_text.splitlines():
         if "Exposure" in line:
-            exposure_time_match = re.search(search_pattern, line)
+            match = re.search(pattern, line)
+            if match:
+                time, unit = match.groups()
+                exposure_time_ms = _convert_time_to_ms(time, unit)
+                break
+    return exposure_time_ms
 
-    # Convert to float if search was successful
-    if exposure_time_match:
-        exposure_time = float(exposure_time_match.group(1))
-        unit = exposure_time_match.group(2)
-    else:
-        warnings.warn("Exposure time not found.", UserWarning, stacklevel=2)
-        return None
 
-    # Convert exposure time to milliseconds
-    if unit == "s":
-        return 1e3 * exposure_time
-    elif unit == "ms":
-        return exposure_time
-    elif unit == "us":
-        return 1e-3 * exposure_time
-    # TODO: update with elif's if other units are ever found
-    else:
-        raise ValueError(f"Unknown unit for exposure time: {unit}.")
+def _parse_period_from_plane(plane_text: str) -> float | None:
+    """Parse period from 'Plane' section of text_info.
+
+    The period (or frame interval) is the time between the start of one frame and the start of the
+    next in a sequence. It's distinct from the exposure time, which is the portion of that period
+    during which the sample is illuminated and the camera is actively collecting light.
+
+    Returns None if the period is not found in the text (i.e. image is not a timelapse).
+    """
+    period_ms = None
+    pattern = r"Period\s+(\d+(?:\.\d+)?)\s*(\w+)"
+    for line in plane_text.splitlines():
+        if "Period" in line:
+            match = re.search(pattern, line)
+            if match:
+                time, unit = match.groups()
+                period_ms = _convert_time_to_ms(time, unit)
+                break
+    return period_ms
 
 
 def _parse_laser_power_from_plane(plane_text: str) -> float | None:
@@ -366,16 +486,25 @@ def _parse_laser_power_from_plane(plane_text: str) -> float | None:
 
     Returns None if laser power is not found in the text.
     """
-    # Search for laser power
-    search_pattern = r"Power:\s*(-?\d+(\.\d*)?|-?\.\d+)"
+    laser_power_pct = None
+    pattern = r"Power:\s*(-?\d+(\.\d*)?|-?\.\d+)"
     for line in plane_text.splitlines():
         if "Power" in line:
-            power_match = re.search(search_pattern, line)
-    # Convert to float if search was successful
-    if power_match:
-        laser_power_pct = float(power_match.group(1))
-    else:
-        warnings.warn("Laser power not found.", UserWarning, stacklevel=2)
-        return None
-    # TODO: Convert laser power to mW
+            match = re.search(pattern, line)
+            if match:
+                laser_power_pct = float(match.group(1))
+    # TODO: convert % to mW
     return laser_power_pct
+
+
+def _convert_time_to_ms(time: str, unit: str) -> float:
+    """Converts time to milliseconds."""
+    time = float(time)
+    if unit == "s":
+        return 1e3 * time
+    elif unit == "ms":
+        return time
+    elif unit == "us" or unit == "µs":
+        return 1e-3 * time
+    else:
+        raise ValueError(f"Unknown unit of time: {unit}.")
