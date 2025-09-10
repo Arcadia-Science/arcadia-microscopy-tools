@@ -70,6 +70,7 @@ example-timelapse.nd2:
     zoom: 1.0
     binning: 2x2
     exposure_time_ms: 500.0
+    duration_s: 60
     laser_power_pct: 95.7
 
 example-zstack.nd2:
