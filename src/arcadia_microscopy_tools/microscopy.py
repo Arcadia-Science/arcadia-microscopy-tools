@@ -86,7 +86,6 @@ class ChannelMetadata:
 
     channel: Channel | None = None
     timestamp: datetime | None = None
-    dimensions: str | None = None
     height_px: int | None = None
     width_px: int | None = None
     thickness_px: int | None = None
@@ -138,7 +137,6 @@ class ChannelMetadata:
 
         # Parse these specific metadata fields from the section of `text_info`
         timestamp = _parse_timestamp_from_text_info(text_info)
-        dimensions = _parse_dimensions_from_text_info(text_info)
         binning = _parse_binning_from_sample(sample_text)
         exposure_time_ms = _parse_exposure_time_from_sample(sample_text)
         period_ms = _parse_period_from_plane(plane_text)
@@ -148,7 +146,6 @@ class ChannelMetadata:
         return cls(
             channel=channel,
             timestamp=timestamp,
-            dimensions=dimensions,
             height_px=nd2_channel.volume.voxelCount[0],
             width_px=nd2_channel.volume.voxelCount[1],
             thickness_px=nd2_channel.volume.voxelCount[2],
@@ -173,8 +170,8 @@ class ImageMetadata:
     Contains metadata for all channels in the image.
     """
 
-    channels: list[ChannelMetadata]
     dimensions: str
+    channels: list[ChannelMetadata]
 
     @classmethod
     def from_nd2_path(
@@ -203,7 +200,7 @@ class ImageMetadata:
             channel_metadatas.append(channel_metadata)
 
         dimensions = _parse_dimensions_from_text_info(text_info)
-        return cls(channel_metadatas, dimensions)
+        return cls(dimensions, channel_metadatas)
 
 
 @dataclass
