@@ -99,6 +99,7 @@ class ChannelMetadata:
     binning: str | None = None
     exposure_time_ms: float | None = None
     period_ms: float | None = None
+    duration_s: float | None = None
     laser_power_pct: float | None = None
 
     @classmethod
@@ -141,6 +142,7 @@ class ChannelMetadata:
         binning = _parse_binning_from_sample(sample_text)
         exposure_time_ms = _parse_exposure_time_from_sample(sample_text)
         period_ms = _parse_period_from_plane(plane_text)
+        duration_s = _parse_duration_from_plane(plane_text)
         laser_power_pct = _parse_laser_power_from_plane(plane_text)
 
         return cls(
@@ -159,6 +161,7 @@ class ChannelMetadata:
             binning=binning,
             exposure_time_ms=exposure_time_ms,
             period_ms=period_ms,
+            duration_s=duration_s,
             laser_power_pct=laser_power_pct,
         )
 
@@ -465,9 +468,11 @@ def _parse_period_from_plane(plane_text: str) -> float | None:
 
     The period (or frame interval) is the time between the start of one frame and the start of the
     next in a sequence. It's distinct from the exposure time, which is the portion of that period
-    during which the sample is illuminated and the camera is actively collecting light.
+    during which the sample is illuminated and the camera is actively collecting light. Depending
+    on the acquisition settings of the timelapse set in the software, the ND2 file metadata will
+    either output period or duration but not both.
 
-    Returns None if the period is not found in the text (i.e. image is not a timelapse).
+    Returns None if the period is not found in the text.
     """
     period_ms = None
     pattern = r"Period\s+(\d+(?:\.\d+)?)\s*(\w+)"
@@ -479,6 +484,27 @@ def _parse_period_from_plane(plane_text: str) -> float | None:
                 period_ms = _convert_time_to_ms(time, unit)
                 break
     return period_ms
+
+
+def _parse_duration_from_plane(plane_text: str) -> float | None:
+    """Parse duration from 'Plane' section of text_info.
+
+    The duration is the total time of a timelapse. Depending on the acquisition settings of the
+    timelapse set in the software, the ND2 file metadata will either output period or duration
+    but not both.
+
+    Returns None if the duration is not found in the text.
+    """
+    duration_s = None
+    pattern = r"Duration\s+(\d+(?:\.\d+)?)\s*(\w+)"
+    for line in plane_text.splitlines():
+        if "Duration" in line:
+            match = re.search(pattern, line)
+            if match:
+                time, unit = match.groups()
+                duration_s = _convert_time_to_ms(time, unit) / 1000
+                break
+    return duration_s
 
 
 def _parse_laser_power_from_plane(plane_text: str) -> float | None:
@@ -500,7 +526,11 @@ def _parse_laser_power_from_plane(plane_text: str) -> float | None:
 def _convert_time_to_ms(time: str, unit: str) -> float:
     """Converts time to milliseconds."""
     time = float(time)
-    if unit == "s":
+    if "h" in unit:
+        return 3600 * 1000 * time
+    elif unit == "min":
+        return 60 * 1e3 * time
+    elif unit == "s":
         return 1e3 * time
     elif unit == "ms":
         return time
