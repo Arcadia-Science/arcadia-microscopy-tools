@@ -15,17 +15,21 @@ CHANNEL_EXCITATION_PEAKS_NM = {
     "DAPI": 405,
     "FITC": 488,
     "TRITC": 561,
+    "CY5": 640,
 }
 CHANNEL_EMISSION_PEAKS_NM = {
     "DAPI": 450,
     "FITC": 512,
     "TRITC": 595,
+    "CY5": 665,
 }
 CHANNEL_COLORS_RGB = {
     "BF": Color(255, 255, 255),
+    "DIC": Color(255, 255, 255),
     "DAPI": Color(0, 51, 255),
     "FITC": Color(7, 255, 0),
     "TRITC": Color(255, 191, 0),
+    "CY5": Color(163, 0, 0),
 }
 
 NIKON_OPTICAL_CONFIGS_MAP = {
@@ -34,6 +38,7 @@ NIKON_OPTICAL_CONFIGS_MAP = {
     "FITC BP": "FITC",
     "TRITC BP": "TRITC",
     "GFP 488 nm": "FITC",
+    "640 nm": "CY5",
 }
 
 
