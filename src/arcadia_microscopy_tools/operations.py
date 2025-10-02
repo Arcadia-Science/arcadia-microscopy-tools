@@ -99,3 +99,38 @@ def get_background_subtracted_intensities(
 
     # Subtract background and clip negative values
     return np.clip(intensities_dog - background_level, 0, None)
+
+
+def crop_to_center(
+    intensities: ScalarArray,
+    output_shape: tuple[int, int],
+) -> FloatArray:
+    """Crop image to specified dimensions by taking pixels from the center.
+
+    Extracts a rectangular region from the center of the input image with the
+    specified output dimensions. If the requested crop size exceeds the image
+    dimensions, the crop is limited to the available image size.
+
+    Args:
+        intensities: Input image array.
+        output_shape: Tuple of (height, width) for the desired output dimensions.
+
+    Returns:
+        FloatArray: Cropped image centered on the original image.
+
+    Notes:
+        - Works with multi-dimensional arrays where the last two dimensions are height and width.
+        - If output_shape is larger than the image, returns the full image.
+        - Cropping is always centered, with equal padding removed from opposite sides.
+    """
+    height, width = intensities.shape[-2:]
+    crop_height, crop_width = output_shape
+
+    # Ensure the crop size does not exceed the image size
+    crop_width = min(width, crop_width)
+    crop_height = min(height, crop_height)
+
+    left = (width - crop_width) // 2
+    top = (height - crop_height) // 2
+
+    return intensities[..., top : top + crop_height, left : left + crop_width]
