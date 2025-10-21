@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from .typing import ScalarArray
@@ -26,7 +27,7 @@ class ImageOperation:
         """Apply the operation to an image.
 
         Args:
-            intensities: The input image intensity array.
+            intensities: Input image as an array of intensity values.
 
         Returns:
             ScalarArray: The processed image intensity array.
@@ -55,7 +56,7 @@ class Pipeline:
         """Apply the pipeline to an image.
 
         Args:
-            intensities: The input image intensity array.
+            intensities: Input image as an array of intensity values.
 
         Returns:
             ScalarArray: The processed image intensity array after applying all operations.
@@ -64,3 +65,41 @@ class Pipeline:
         for operation in self.operations:
             out = operation(out)
         return out
+
+
+@dataclass
+class PipelineParallelized:
+    """A pipeline for parallel processing of multi-dimensional image data.
+
+    Applies a sequence of image processing operations to each frame/slice in parallel
+    using ThreadPoolExecutor. Parallelizes execution over the first dimension of the
+    input array, with the last two dimensions assumed to be (y, x) spatial coordinates.
+
+    Useful for timelapse data, z-stacks, multi-channel images, or any multi-dimensional
+    image data where processing can be parallelized across the first axis.
+    """
+
+    operations: list[ImageOperation]
+    max_workers: int = None
+
+    def __call__(self, intensities: ScalarArray) -> ScalarArray:
+        """Apply the pipeline to all frames/slices in parallel.
+
+        Args:
+            intensities: Input image as a multi-dimensional array of intensity values.
+
+        Returns:
+            ScalarArray: The processed image intensity array after applying all operations.
+        """
+
+        def process_frame(frame: ScalarArray) -> ScalarArray:
+            """Apply all operations to a single frame."""
+            out = frame.copy()
+            for operation in self.operations:
+                out = operation(out)
+            return out
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            processed_frames = list(executor.map(process_frame, intensities))
+
+        return processed_frames
