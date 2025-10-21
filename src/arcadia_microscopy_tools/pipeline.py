@@ -1,6 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
+import numpy as np
+
 from .typing import ScalarArray
 
 
@@ -100,6 +102,6 @@ class PipelineParallelized:
             return out
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            processed_frames = list(executor.map(process_frame, intensities))
+            processed = list(executor.map(process_frame, intensities))
 
-        return processed_frames
+        return np.array(processed, dtype=float)
