@@ -39,6 +39,7 @@ NIKON_OPTICAL_CONFIGS_MAP = {
     "TRITC BP": "TRITC",
     "GFP 488 nm": "FITC",
     "640 nm": "CY5",
+    "DIC 40x": "DIC",
 }
 
 
