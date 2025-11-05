@@ -112,6 +112,7 @@ class ChannelMetadata:
         cls,
         nd2_path: Path | str,
         channel_index: int = 0,
+        channel: Channel | None = None,
     ) -> ChannelMetadata:
         """Extract metadata for a specific channel from a Nikon ND2 file.
 
@@ -134,8 +135,9 @@ class ChannelMetadata:
             text_info = nd2f.text_info
 
         # Get channel from Nikon optical configuration
-        optical_config = nd2_channel.channel.name
-        channel = Channel.from_optical_config_name(optical_config)
+        if channel is None:
+            optical_config = nd2_channel.channel.name
+            channel = Channel.from_optical_config_name(optical_config)
 
         # Certain metadata fields can only be found in certain sections of `text_info`
         sample_text = _extract_sample_from_text_info(text_info, sample_index=channel_index + 1)
@@ -177,12 +179,13 @@ class ImageMetadata:
     """
 
     dimensions: str
-    channels: list[ChannelMetadata]
+    channel_metadata_list: list[ChannelMetadata]
 
     @classmethod
     def from_nd2_path(
         cls,
         nd2_path: Path | str,
+        channels: list[Channel] | None = None,
     ) -> ImageMetadata:
         """Create ImageMetadata from a Nikon ND2 file.
 
@@ -197,16 +200,18 @@ class ImageMetadata:
             text_info = nd2f.text_info
 
         # Collect channel metadata
-        channel_metadatas = []
+        channel_metadata_list = []
         for i in range(num_channels):
+            channel = channels[i] if channels else None
             channel_metadata = ChannelMetadata.from_nd2_path(
                 nd2_path,
                 channel_index=i,
+                channel=channel,
             )
-            channel_metadatas.append(channel_metadata)
+            channel_metadata_list.append(channel_metadata)
 
         dimensions = _parse_dimensions_from_text_info(text_info)
-        return cls(dimensions, channel_metadatas)
+        return cls(dimensions, channel_metadata_list)
 
 
 @dataclass
@@ -236,6 +241,7 @@ class MicroscopyImage:
         cls,
         nd2_path: Path | str,
         sample_metadata: dict[str, Any] | None = None,
+        channels: list[Channel] | None = None,
     ) -> MicroscopyImage:
         """Create MicroscopyImage from a Nikon ND2 file.
 
@@ -247,7 +253,7 @@ class MicroscopyImage:
             MicroscopyImage: A new microscopy image with intensity data and metadata.
         """
         intensities = nd2.imread(nd2_path)
-        image_metadata = ImageMetadata.from_nd2_path(nd2_path)
+        image_metadata = ImageMetadata.from_nd2_path(nd2_path, channels)
         metadata = Metadata(sample_metadata, image_metadata)
         return cls(intensities, metadata)
 
@@ -259,7 +265,10 @@ class MicroscopyImage:
     @property
     def channels(self):
         """Get the list of channels in this image."""
-        return [channel_metadata.channel for channel_metadata in self.metadata.image.channels]
+        return [
+            channel_metadata.channel
+            for channel_metadata in self.metadata.image.channel_metadata_list
+        ]
 
     @property
     def num_channels(self):
@@ -284,7 +293,7 @@ class MicroscopyImage:
         if channel in self.channels:
             if self.intensities.ndim > 2:
                 channel_index = self.channels.index(channel)
-                return self.intensities[channel_index, :, :].copy()
+                return self.intensities[channel_index, ...].copy()
             else:
                 return self.intensities.copy()
         else:
