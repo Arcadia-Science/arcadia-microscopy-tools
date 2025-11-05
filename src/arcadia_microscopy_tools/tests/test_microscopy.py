@@ -9,7 +9,7 @@ def assert_metadata_equal(image: MicroscopyImage, expected_image_metadata: dict[
     for channel_str, known_channel_metadata in expected_image_metadata.items():
         channel = Channel[channel_str]
         channel_index = image.channels.index(channel)
-        channel_metadata = image.metadata.image.channels[channel_index]
+        channel_metadata = image.metadata.image.channel_metadata_list[channel_index]
 
         for parameter_name, known_value in known_channel_metadata.items():
             parsed_value = getattr(channel_metadata, parameter_name)
