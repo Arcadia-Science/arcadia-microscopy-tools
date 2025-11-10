@@ -11,8 +11,9 @@ from .typing import BoolArray, FloatArray, IntArray, ScalarArray
 
 OutlineExtractorMethod = Literal["cellpose", "skimage"]
 
-CELL_PROPERTIES = [
+DEFAULT_CELL_PROPERTY_NAMES = [
     "label",
+    "centroid",
     "area",
     "area_convex",
     "perimeter",
@@ -93,12 +94,14 @@ class SegmentationMask:
         intensity_image: Optional intensity image for computing intensity-based features.
         remove_edge_cells: Whether to remove cells touching image borders.
         outline_extractor: Outline extraction method ("cellpose" or "skimage").
+        property_names: List of property names to compute. If None, uses default property names.
     """
 
     mask_image: ScalarArray
     intensity_image: ScalarArray | None = None
     remove_edge_cells: bool = True
     outline_extractor: OutlineExtractorMethod = "cellpose"
+    property_names: list[str] | None = None
 
     def __post_init__(self):
         """Validate inputs and create processors."""
@@ -115,6 +118,10 @@ class SegmentationMask:
             self.mask_image.shape != self.intensity_image.shape
         ):
             raise ValueError("Intensity image must have same shape as mask image.")
+
+        # Set default property names if none provided
+        if self.property_names is None:
+            self.property_names = DEFAULT_CELL_PROPERTY_NAMES.copy()
 
         # Create mask processor
         self._mask_processor = MaskProcessor(remove_edge_cells=self.remove_edge_cells)
@@ -145,13 +152,13 @@ class SegmentationMask:
 
     @cached_property
     def cell_properties(self) -> dict[str, ScalarArray]:
-        """Extract cell properties using regionprops."""
+        """Extract cell property values using regionprops."""
         if self.num_cells == 0:
-            return {prop: np.array([]) for prop in CELL_PROPERTIES}
+            return {property_name: np.array([]) for property_name in self.property_names}
 
         return ski.measure.regionprops_table(
             self.label_image,
-            properties=CELL_PROPERTIES,
+            properties=self.property_names,
             extra_properties=[circularity],
         )
 
