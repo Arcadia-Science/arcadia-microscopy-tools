@@ -1,4 +1,5 @@
 from __future__ import annotations
+import warnings
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Literal
@@ -161,6 +162,34 @@ class SegmentationMask:
             properties=self.property_names,
             extra_properties=[circularity],
         )
+
+    @cached_property
+    def centroids_yx(self) -> ScalarArray:
+        """Get cell centroids as (y, x) coordinates.
+
+        Extracts centroid coordinates from cell properties and returns them as a 2D array
+        where each row represents one cell's centroid in (y, x) format.
+
+        Returns:
+            Array of shape (num_cells, 2) with centroid coordinates.
+            Each row is [y_coordinate, x_coordinate] for one cell.
+            Returns empty array if "centroid" is not included in property_names.
+
+        Note:
+            If "centroid" is not in property_names, issues a warning and returns an empty array.
+        """
+        if "centroid" not in self.property_names:
+            warnings.warn(
+                "Centroid property not available. Include 'centroid' in property_names "
+                "to get centroid coordinates. Returning empty array.",
+                UserWarning,
+                stacklevel=2,
+            )
+            return np.array([]).reshape(0, 2)
+
+        yc = self.cell_properties["centroid-0"]
+        xc = self.cell_properties["centroid-1"]
+        return np.array([yc, xc]).T
 
 
 def circularity(
