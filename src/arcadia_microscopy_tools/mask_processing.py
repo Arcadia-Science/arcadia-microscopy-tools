@@ -167,7 +167,20 @@ def circularity(
     region_mask: BoolArray,
     intensity_image: FloatArray | None = None,
 ) -> float:
-    """"""
+    """Calculate the circularity of a cell region.
+
+    Circularity is a shape metric that quantifies how close a shape is to a perfect circle.
+    It is computed as (4π * area) / perimeter², ranging from 0 to 1, where 1 represents
+    a perfect circle and lower values indicate more elongated or irregular shapes.
+
+    Args:
+        region_mask: Boolean mask of the cell region.
+        intensity_image:
+            Optional intensity image (unused but included for regionprops compatibility).
+
+    Returns:
+        Circularity value between 0 and 1. Returns 0 if perimeter is zero.
+    """
     # regionprops expects a labeled image, so convert the mask (0/1)
     labeled_mask = region_mask.astype(np.int32, copy=False)
 
