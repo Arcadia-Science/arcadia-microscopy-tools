@@ -7,7 +7,7 @@ import numpy as np
 import skimage as ski
 from cellpose.utils import outlines_list
 
-from .typing import IntArray, ScalarArray
+from .typing import BoolArray, FloatArray, IntArray, ScalarArray
 
 OutlineExtractorMethod = Literal["cellpose", "skimage"]
 
@@ -149,4 +149,27 @@ class SegmentationMask:
         if self.num_cells == 0:
             return {prop: np.array([]) for prop in CELL_PROPERTIES}
 
-        return ski.measure.regionprops_table(self.label_image, properties=CELL_PROPERTIES)
+        return ski.measure.regionprops_table(
+            self.label_image,
+            properties=CELL_PROPERTIES,
+            extra_properties=[circularity],
+        )
+
+
+def circularity(
+    region_mask: BoolArray,
+    intensity_image: FloatArray | None = None,
+) -> float:
+    """"""
+    # regionprops expects a labeled image, so convert the mask (0/1)
+    labeled_mask = region_mask.astype(np.int32, copy=False)
+
+    # Compute standard region properties on this mask
+    props = ski.measure.regionprops(labeled_mask)[0]
+    area = float(props.area)
+    perimeter = float(props.perimeter)
+
+    if perimeter == 0.0:
+        return 0.0
+
+    return (4.0 * np.pi * area) / (perimeter**2)
