@@ -211,7 +211,7 @@ def circularity(
         Circularity value between 0 and 1. Returns 0 if perimeter is zero.
     """
     # regionprops expects a labeled image, so convert the mask (0/1)
-    labeled_mask = region_mask.astype(np.int32, copy=False)
+    labeled_mask = region_mask.astype(np.int64, copy=False)
 
     # Compute standard region properties on this mask
     props = ski.measure.regionprops(labeled_mask)[0]
