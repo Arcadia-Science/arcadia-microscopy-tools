@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from cellpose.models import CellposeModel
 
-from .typing import FloatArray, IntArray
+from .typing import FloatArray, Int64Array
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ class SegmentationModel:
         batch_intensities: list[FloatArray],
         batch_size: int = 8,
         **cellpose_kwargs: dict[str, Any],
-    ) -> IntArray:
+    ) -> Int64Array:
         """Run cell segmentation using Cellpose.
 
         Args:
@@ -120,7 +120,7 @@ class SegmentationModel:
                 Common options include 'min_size' (minimum cell size in pixels).
 
         Returns:
-            IntArray: Output batch of labeled masks with shape (batch, height, width).
+            Int64Array: Output batch of labeled masks with shape (batch, height, width).
                 Each segmented cell has a unique positive integer ID, background is 0.
 
         Raises:

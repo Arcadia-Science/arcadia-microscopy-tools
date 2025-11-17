@@ -1,4 +1,5 @@
 from __future__ import annotations
+import warnings
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Literal
@@ -7,12 +8,13 @@ import numpy as np
 import skimage as ski
 from cellpose.utils import outlines_list
 
-from .typing import IntArray, ScalarArray
+from .typing import BoolArray, FloatArray, Int64Array, ScalarArray
 
 OutlineExtractorMethod = Literal["cellpose", "skimage"]
 
-CELL_PROPERTIES = [
+DEFAULT_CELL_PROPERTY_NAMES = [
     "label",
+    "centroid",
     "area",
     "area_convex",
     "perimeter",
@@ -30,7 +32,7 @@ CELL_PROPERTIES = [
 class CellposeOutlineExtractor:
     """Extract cell outlines using Cellpose's outlines_list function."""
 
-    def extract_outlines(self, label_image: IntArray) -> list[ScalarArray]:
+    def extract_outlines(self, label_image: Int64Array) -> list[ScalarArray]:
         """Extract outlines from label image."""
         return outlines_list(label_image, multiprocessing=False)
 
@@ -38,7 +40,7 @@ class CellposeOutlineExtractor:
 class SkimageOutlineExtractor:
     """Extract cell outlines using scikit-image's find_contours."""
 
-    def extract_outlines(self, label_image: IntArray) -> list[ScalarArray]:
+    def extract_outlines(self, label_image: Int64Array) -> list[ScalarArray]:
         """Extract outlines from label image."""
         # Get unique cell IDs (excluding background)
         unique_labels = np.unique(label_image)
@@ -66,7 +68,7 @@ class MaskProcessor:
 
     remove_edge_cells: bool = True
 
-    def process_mask(self, mask_image: ScalarArray) -> IntArray:
+    def process_mask(self, mask_image: ScalarArray) -> Int64Array:
         """Process a mask image by optionally removing edge cells and ensuring consecutive labels.
 
         Args:
@@ -93,12 +95,14 @@ class SegmentationMask:
         intensity_image: Optional intensity image for computing intensity-based features.
         remove_edge_cells: Whether to remove cells touching image borders.
         outline_extractor: Outline extraction method ("cellpose" or "skimage").
+        property_names: List of property names to compute. If None, uses default property names.
     """
 
     mask_image: ScalarArray
     intensity_image: ScalarArray | None = None
     remove_edge_cells: bool = True
     outline_extractor: OutlineExtractorMethod = "cellpose"
+    property_names: list[str] | None = None
 
     def __post_init__(self):
         """Validate inputs and create processors."""
@@ -116,6 +120,10 @@ class SegmentationMask:
         ):
             raise ValueError("Intensity image must have same shape as mask image.")
 
+        # Set default property names if none provided
+        if self.property_names is None:
+            self.property_names = DEFAULT_CELL_PROPERTY_NAMES.copy()
+
         # Create mask processor
         self._mask_processor = MaskProcessor(remove_edge_cells=self.remove_edge_cells)
 
@@ -126,7 +134,7 @@ class SegmentationMask:
             self._outline_extractor = SkimageOutlineExtractor()
 
     @cached_property
-    def label_image(self) -> IntArray:
+    def label_image(self) -> Int64Array:
         """Get processed label image with consecutive labels."""
         return self._mask_processor.process_mask(self.mask_image)
 
@@ -145,8 +153,72 @@ class SegmentationMask:
 
     @cached_property
     def cell_properties(self) -> dict[str, ScalarArray]:
-        """Extract cell properties using regionprops."""
+        """Extract cell property values using regionprops."""
         if self.num_cells == 0:
-            return {prop: np.array([]) for prop in CELL_PROPERTIES}
+            return {property_name: np.array([]) for property_name in self.property_names}
 
-        return ski.measure.regionprops_table(self.label_image, properties=CELL_PROPERTIES)
+        return ski.measure.regionprops_table(
+            self.label_image,
+            properties=self.property_names,
+            extra_properties=[circularity],
+        )
+
+    @cached_property
+    def centroids_yx(self) -> ScalarArray:
+        """Get cell centroids as (y, x) coordinates.
+
+        Extracts centroid coordinates from cell properties and returns them as a 2D array
+        where each row represents one cell's centroid in (y, x) format.
+
+        Returns:
+            Array of shape (num_cells, 2) with centroid coordinates.
+            Each row is [y_coordinate, x_coordinate] for one cell.
+            Returns empty array if "centroid" is not included in property_names.
+
+        Note:
+            If "centroid" is not in property_names, issues a warning and returns an empty array.
+        """
+        if "centroid" not in self.property_names:
+            warnings.warn(
+                "Centroid property not available. Include 'centroid' in property_names "
+                "to get centroid coordinates. Returning empty array.",
+                UserWarning,
+                stacklevel=2,
+            )
+            return np.array([]).reshape(0, 2)
+
+        yc = self.cell_properties["centroid-0"]
+        xc = self.cell_properties["centroid-1"]
+        return np.array([yc, xc]).T
+
+
+def circularity(
+    region_mask: BoolArray,
+    intensity_image: FloatArray | None = None,
+) -> float:
+    """Calculate the circularity of a cell region.
+
+    Circularity is a shape metric that quantifies how close a shape is to a perfect circle.
+    It is computed as (4π * area) / perimeter², ranging from 0 to 1, where 1 represents
+    a perfect circle and lower values indicate more elongated or irregular shapes.
+
+    Args:
+        region_mask: Boolean mask of the cell region.
+        intensity_image:
+            Optional intensity image (unused but included for regionprops compatibility).
+
+    Returns:
+        Circularity value between 0 and 1. Returns 0 if perimeter is zero.
+    """
+    # regionprops expects a labeled image, so convert the mask (0/1)
+    labeled_mask = region_mask.astype(np.int64, copy=False)
+
+    # Compute standard region properties on this mask
+    props = ski.measure.regionprops(labeled_mask)[0]
+    area = float(props.area)
+    perimeter = float(props.perimeter)
+
+    if perimeter == 0.0:
+        return 0.0
+
+    return (4.0 * np.pi * area) / (perimeter**2)
