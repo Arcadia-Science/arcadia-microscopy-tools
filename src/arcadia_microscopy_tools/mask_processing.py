@@ -8,7 +8,7 @@ import numpy as np
 import skimage as ski
 from cellpose.utils import outlines_list
 
-from .typing import BoolArray, FloatArray, IntArray, ScalarArray
+from .typing import BoolArray, FloatArray, Int64Array, ScalarArray
 
 OutlineExtractorMethod = Literal["cellpose", "skimage"]
 
@@ -32,7 +32,7 @@ DEFAULT_CELL_PROPERTY_NAMES = [
 class CellposeOutlineExtractor:
     """Extract cell outlines using Cellpose's outlines_list function."""
 
-    def extract_outlines(self, label_image: IntArray) -> list[ScalarArray]:
+    def extract_outlines(self, label_image: Int64Array) -> list[ScalarArray]:
         """Extract outlines from label image."""
         return outlines_list(label_image, multiprocessing=False)
 
@@ -40,7 +40,7 @@ class CellposeOutlineExtractor:
 class SkimageOutlineExtractor:
     """Extract cell outlines using scikit-image's find_contours."""
 
-    def extract_outlines(self, label_image: IntArray) -> list[ScalarArray]:
+    def extract_outlines(self, label_image: Int64Array) -> list[ScalarArray]:
         """Extract outlines from label image."""
         # Get unique cell IDs (excluding background)
         unique_labels = np.unique(label_image)
@@ -68,7 +68,7 @@ class MaskProcessor:
 
     remove_edge_cells: bool = True
 
-    def process_mask(self, mask_image: ScalarArray) -> IntArray:
+    def process_mask(self, mask_image: ScalarArray) -> Int64Array:
         """Process a mask image by optionally removing edge cells and ensuring consecutive labels.
 
         Args:
@@ -134,7 +134,7 @@ class SegmentationMask:
             self._outline_extractor = SkimageOutlineExtractor()
 
     @cached_property
-    def label_image(self) -> IntArray:
+    def label_image(self) -> Int64Array:
         """Get processed label image with consecutive labels."""
         return self._mask_processor.process_mask(self.mask_image)
 
