@@ -160,7 +160,7 @@ class SegmentationMask:
         return ski.measure.regionprops_table(
             self.label_image,
             properties=self.property_names,
-            extra_properties=[circularity],
+            extra_properties=[circularity, volume],
         )
 
     @cached_property
@@ -222,3 +222,41 @@ def circularity(
         return 0.0
 
     return (4.0 * np.pi * area) / (perimeter**2)
+
+
+def volume(
+    region_mask: BoolArray,
+    intensity_image: FloatArray | None = None,
+) -> float:
+    """Estimate the volume of a cell region.
+
+    Volume is estimated by fitting an ellipse to the cell region and treating it as
+    a prolate spheroid (ellipsoid of revolution). The ellipsoid is formed by rotating
+    the fitted ellipse around its major axis, with volume = (4/3)π * a * b^2, where
+    a is the semi-major axis and b is the semi-minor axis.
+
+    Args:
+        region_mask: Boolean mask of the cell region.
+        intensity_image:
+            Optional intensity image (unused but included for regionprops compatibility).
+
+    Returns:
+        Estimated volume in cubic pixels. Returns 0 if axis lengths cannot be computed.
+    """
+    # regionprops expects a labeled image, so convert the mask (0/1)
+    labeled_mask = region_mask.astype(np.int64, copy=False)
+
+    # Compute standard region properties on this mask
+    props = ski.measure.regionprops(labeled_mask)[0]
+    major_axis = float(props.axis_major_length)
+    minor_axis = float(props.axis_minor_length)
+
+    if major_axis == 0.0 or minor_axis == 0.0:
+        return 0.0
+
+    # Convert to semi-axes (regionprops returns full lengths)
+    semi_major = major_axis / 2.0
+    semi_minor = minor_axis / 2.0
+
+    # Volume of prolate spheroid: (4/3) * π * a * b * b
+    return (4.0 / 3.0) * np.pi * semi_major * semi_minor * semi_minor
