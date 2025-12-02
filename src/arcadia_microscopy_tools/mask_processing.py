@@ -191,6 +191,59 @@ class SegmentationMask:
         xc = self.cell_properties["centroid-1"]
         return np.array([yc, xc]).T
 
+    def convert_properties_to_microns(
+        self,
+        pixel_size_um: float,
+    ) -> dict[str, ScalarArray]:
+        """Convert cell properties from pixels to microns.
+
+        Applies appropriate scaling factors based on the dimensionality of each property:
+            - Linear measurements (1D): multiplied by pixel_size_um
+            - Area measurements (2D): multiplied by pixel_size_um²
+            - Volume measurements (3D): multiplied by pixel_size_um³
+            - Dimensionless properties: unchanged
+
+        Args:
+            pixel_size_um: Pixel size in microns.
+
+        Returns:
+            Dictionary with the same keys as cell_properties but with values
+            converted to micron units where applicable.
+
+        Note:
+            Properties like 'label', 'circularity', 'eccentricity', 'solidity',
+            and 'orientation' are dimensionless and remain unchanged.
+            Tensor properties (inertia_tensor, inertia_tensor_eigvals) are scaled
+            as 2D quantities (pixel_size_um²).
+        """
+        # Define which properties need which scaling
+        linear_properties = {
+            "perimeter",
+            "axis_major_length",
+            "axis_minor_length",
+            "centroid-0",
+            "centroid-1",
+        }
+        area_properties = {"area", "area_convex"}
+        volume_properties = {"volume"}
+        tensor_properties = {"inertia_tensor", "inertia_tensor_eigvals"}
+
+        converted = {}
+        for prop_name, prop_values in self.cell_properties.items():
+            if prop_name in linear_properties:
+                converted[prop_name] = prop_values * pixel_size_um
+            elif prop_name in area_properties:
+                converted[prop_name] = prop_values * (pixel_size_um**2)
+            elif prop_name in volume_properties:
+                converted[prop_name] = prop_values * (pixel_size_um**3)
+            elif prop_name in tensor_properties:
+                converted[prop_name] = prop_values * (pixel_size_um**2)
+            else:
+                # Dimensionless or label - no conversion
+                converted[prop_name] = prop_values
+
+        return converted
+
 
 def circularity(
     region_mask: BoolArray,
