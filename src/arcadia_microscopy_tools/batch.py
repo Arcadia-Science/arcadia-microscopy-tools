@@ -284,7 +284,7 @@ class ImageBatch:
             model: A SegmentationModel instance to use for cell segmentation.
             channel: The channel to segment, either as Channel enum or string name.
             cellpose_batch_size: Number of 256x256 patches to run simultaneously on the GPU (not
-                to be confused with self.batch_size). Default is 8.
+                to be confused with self.batch_size). Default is 4.
             **cellpose_kwargs:
                 Additional keyword arguments to pass to the model's run method,
                 such as min_size.
@@ -301,6 +301,9 @@ class ImageBatch:
             - Results are stored in the segmentation_masks_dict attribute indexed by channel
             - The returned masks are integer arrays where each cell has a unique ID > 0,
               and 0 represents the background
+            - Each SegmentationMask will extract intensity properties from the channel that
+              was segmented, with property names suffixed by the channel name (e.g.,
+              "intensity_mean_BF")
 
         Examples:
             >>> batch = ImageBatch.from_paths(["image1.nd2", "image2.nd2"])
@@ -329,8 +332,8 @@ class ImageBatch:
         for mask_image, intensity_image in zip(masks, batch_intensities, strict=True):
             segmentation_mask = SegmentationMask(
                 mask_image,
-                intensity_image,
-                remove_edge_cells,
+                intensity_image_dict={channel: intensity_image},
+                remove_edge_cells=remove_edge_cells,
             )
             segmentation_masks.append(segmentation_mask)
 
