@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -13,7 +14,7 @@ class ImageOperation:
     Allows for convenient composition of image processing pipelines.
     """
 
-    def __init__(self, method: callable, *args, **kwargs):
+    def __init__(self, method: Callable, *args, **kwargs):
         """Create a new image operation.
 
         Args:
@@ -82,7 +83,7 @@ class PipelineParallelized:
     """
 
     operations: list[ImageOperation]
-    max_workers: int = None
+    max_workers: int | None = None
 
     def __call__(self, intensities: ScalarArray) -> ScalarArray:
         """Apply the pipeline to all frames/slices in parallel.
