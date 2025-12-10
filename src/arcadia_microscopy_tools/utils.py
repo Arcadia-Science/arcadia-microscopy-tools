@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import wraps
 from typing import Any
@@ -26,7 +26,7 @@ def configure_logging(verbose):
 
 
 def parallelized(
-    num_workers: int = 8,
+    max_workers: int | None = None,
     show_progress: bool = False,
 ):
     """Decorator to run a dataclass instance method concurrently over an iterable.
@@ -36,12 +36,12 @@ def parallelized(
     a ThreadPoolExecutor and returns a list of results in the same order as the input.
     """
 
-    def decorator(func: callable):
+    def decorator(func: Callable):
         @wraps(func)
         def wrapper(items: Iterable[Any], *args, **kwargs) -> list[Any]:
             # Convert to list so we can preserve order later
             _items = list(items)
-            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Map each future back to its position to keep results ordered
                 future_to_index = {
                     executor.submit(func, item, *args, **kwargs): idx

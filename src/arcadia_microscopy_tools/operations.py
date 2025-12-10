@@ -10,7 +10,7 @@ def rescale_intensity_by_percentiles(
     intensities: ScalarArray,
     percentile_range: tuple[float, float] = (0, 100),
     out_range: tuple[float, float] = (0, 1),
-) -> FloatArray:
+) -> ScalarArray:
     """Rescale image intensities using percentile-based contrast stretching.
 
     Maps the intensity values from specified input percentile range to the output range.
@@ -26,7 +26,7 @@ def rescale_intensity_by_percentiles(
             Default is (0, 1) for float normalization.
 
     Returns:
-        FloatArray: Rescaled image with intensities mapped to the specified output range.
+        ScalarArray: Rescaled image with intensities mapped to the specified output range.
 
     Raises:
         ValueError: If percentile_range or out_range values are invalid.
@@ -50,8 +50,8 @@ def rescale_intensity_by_percentiles(
     # Apply rescaling
     return ski.exposure.rescale_intensity(
         intensities,
-        in_range=(p1, p2),
-        out_range=out_range,
+        in_range=(p1, p2),  # type: ignore
+        out_range=out_range,  # type: ignore
     )
 
 
@@ -104,7 +104,7 @@ def get_background_subtracted_intensities(
 def crop_to_center(
     intensities: ScalarArray,
     output_shape: tuple[int, int],
-) -> FloatArray:
+) -> ScalarArray:
     """Crop image to specified dimensions by taking pixels from the center.
 
     Extracts a rectangular region from the center of the input image with the
@@ -116,7 +116,7 @@ def crop_to_center(
         output_shape: Tuple of (height, width) for the desired output dimensions.
 
     Returns:
-        FloatArray: Cropped image centered on the original image.
+        ScalarArray: Cropped image centered on the original image.
 
     Notes:
         - Works with multi-dimensional arrays where the last two dimensions are height and width.

@@ -1,6 +1,6 @@
 from __future__ import annotations
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Literal
 
@@ -90,8 +90,8 @@ class MaskProcessor:
             _label_image = ski.segmentation.clear_border(_label_image)
 
         # Ensure consecutive labels
-        _label_image = ski.measure.label(_label_image)
-        return _label_image.astype(np.int64)
+        _label_image = ski.measure.label(_label_image).astype(np.int64)  # type: ignore
+        return _label_image
 
 
 @dataclass
@@ -115,8 +115,8 @@ class SegmentationMask:
     intensity_image_dict: dict[Channel, ScalarArray] | None = None
     remove_edge_cells: bool = True
     outline_extractor: OutlineExtractorMethod = "cellpose"
-    property_names: list[str] | None = None
-    intensity_property_names: list[str] | None = None
+    property_names: list[str] | None = field(default=None)
+    intensity_property_names: list[str] | None = field(default=None)
 
     def __post_init__(self):
         """Validate inputs and create processors."""
@@ -149,10 +149,11 @@ class SegmentationMask:
             self.property_names = DEFAULT_CELL_PROPERTY_NAMES.copy()
 
         # Set default intensity property names if intensity images provided
-        if self.intensity_property_names is None and self.intensity_image_dict:
-            self.intensity_property_names = DEFAULT_INTENSITY_PROPERTY_NAMES.copy()
-        elif self.intensity_property_names is None:
-            self.intensity_property_names = []
+        if self.intensity_property_names is None:
+            if self.intensity_image_dict:
+                self.intensity_property_names = DEFAULT_INTENSITY_PROPERTY_NAMES.copy()
+            else:
+                self.intensity_property_names = []
 
         # Create mask processor
         self._mask_processor = MaskProcessor(remove_edge_cells=self.remove_edge_cells)
@@ -196,9 +197,13 @@ class SegmentationMask:
             Dictionary mapping property names to arrays of values (one per cell).
         """
         if self.num_cells == 0:
-            empty_props = {property_name: np.array([]) for property_name in self.property_names}
+            empty_props = (
+                {property_name: np.array([]) for property_name in self.property_names}
+                if self.property_names
+                else {}
+            )
             # Add empty intensity properties if requested
-            if self.intensity_image_dict:
+            if self.intensity_image_dict and self.intensity_property_names:
                 for channel in self.intensity_image_dict:
                     for prop_name in self.intensity_property_names:
                         empty_props[f"{prop_name}_{channel.name}"] = np.array([])
@@ -240,7 +245,7 @@ class SegmentationMask:
         Note:
             If "centroid" is not in property_names, issues a warning and returns an empty array.
         """
-        if "centroid" not in self.property_names:
+        if self.property_names and "centroid" not in self.property_names:
             warnings.warn(
                 "Centroid property not available. Include 'centroid' in property_names "
                 "to get centroid coordinates. Returning empty array.",
@@ -251,7 +256,7 @@ class SegmentationMask:
 
         yc = self.cell_properties["centroid-0"]
         xc = self.cell_properties["centroid-1"]
-        return np.array([yc, xc]).T
+        return np.array([yc, xc], dtype=float).T
 
     def convert_properties_to_microns(
         self,

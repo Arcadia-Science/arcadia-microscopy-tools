@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import nd2
-from nd2.structures import Color
+from nd2.structures import Color, TextInfo
 
 from .typing import UInt16Array
 
@@ -129,10 +129,15 @@ class ChannelMetadata:
         found in `nd2.ND2File.metadata`, so for these fields we parse `nd2.ND2File.text_info`
         instead.
         """
-        # Extract metadata using nd2
         with nd2.ND2File(nd2_path) as nd2f:
-            nd2_channel = nd2f.metadata.channels[channel_index]
-            text_info = nd2f.text_info
+            # Extract channel metadata using nd2
+            channels = nd2f.metadata.channels
+            if channels is None:
+                raise ValueError(f"No channel metadata available in {nd2_path}")
+            nd2_channel_metadata = channels[channel_index]
+
+            # Extract miscellaneous metadata from random text info attribute
+            text_info = TextInfo(nd2f.text_info)
 
             # Search for period and duration info within TimeLoop parameters
             period_ms = None
@@ -146,7 +151,7 @@ class ChannelMetadata:
 
         # Get channel from Nikon optical configuration
         if channel is None:
-            optical_config = nd2_channel.channel.name
+            optical_config = nd2_channel_metadata.channel.name
             channel = Channel.from_optical_config_name(optical_config)
 
         # Certain metadata fields can only be found in certain sections of `text_info`
@@ -162,15 +167,15 @@ class ChannelMetadata:
         return cls(
             channel=channel,
             timestamp=timestamp,
-            height_px=nd2_channel.volume.voxelCount[0],
-            width_px=nd2_channel.volume.voxelCount[1],
-            thickness_px=nd2_channel.volume.voxelCount[2],
-            pixel_size_um=nd2_channel.volume.axesCalibration[:2],
-            z_step_size_um=nd2_channel.volume.axesCalibration[2],
-            objective=nd2_channel.microscope.objectiveName,
-            magnification=nd2_channel.microscope.objectiveMagnification,
-            numerical_aperture=nd2_channel.microscope.objectiveNumericalAperture,
-            zoom=nd2_channel.microscope.zoomMagnification,
+            height_px=nd2_channel_metadata.volume.voxelCount[0],
+            width_px=nd2_channel_metadata.volume.voxelCount[1],
+            thickness_px=nd2_channel_metadata.volume.voxelCount[2],
+            pixel_size_um=nd2_channel_metadata.volume.axesCalibration[:2],
+            z_step_size_um=nd2_channel_metadata.volume.axesCalibration[2],
+            objective=nd2_channel_metadata.microscope.objectiveName,
+            magnification=nd2_channel_metadata.microscope.objectiveMagnification,
+            numerical_aperture=nd2_channel_metadata.microscope.objectiveNumericalAperture,
+            zoom=nd2_channel_metadata.microscope.zoomMagnification,
             binning=binning,
             exposure_time_ms=exposure_time_ms,
             period_ms=period_ms,
@@ -204,8 +209,10 @@ class ImageMetadata:
             ImageMetadata: Metadata for all channels in the image.
         """
         with nd2.ND2File(nd2_path) as nd2f:
+            if nd2f.metadata.contents is None:
+                raise ValueError(f"No metadata contents available in {nd2_path}")
             num_channels = nd2f.metadata.contents.channelCount
-            text_info = nd2f.text_info
+            text_info = TextInfo(nd2f.text_info)
 
         # Collect channel metadata
         channel_metadata_list = []
@@ -273,6 +280,8 @@ class MicroscopyImage:
     @property
     def channels(self):
         """Get the list of channels in this image."""
+        if self.metadata.image is None:
+            raise ValueError("No image metadata available")
         return [
             channel_metadata.channel
             for channel_metadata in self.metadata.image.channel_metadata_list
@@ -313,7 +322,7 @@ class MicroscopyImage:
 
 
 def _extract_sample_from_text_info(
-    text_info: str,
+    text_info: TextInfo,
     sample_index: int = 1,
 ) -> str:
     """Extract a specific "Sample" from `nd2.ND2File.text_info` metadata.
@@ -366,6 +375,9 @@ def _extract_sample_from_text_info(
                        ...
         }
     """
+    if "capturing" not in text_info:
+        raise ValueError("Missing 'capturing' field in text_info")
+
     sample_regex = rf"Sample {sample_index}:[\s\S]*?(?=Sample \d|$)"
     sample_match = re.search(sample_regex, text_info["capturing"])
     if not sample_match:  # only one channel
@@ -375,7 +387,7 @@ def _extract_sample_from_text_info(
 
 
 def _extract_plane_from_text_info(
-    text_info: str,
+    text_info: TextInfo,
     plane_index: int = 1,
 ) -> str:
     """Extract a specific "Plane" from `nd2.ND2File.text_info` metadata.
@@ -434,6 +446,9 @@ def _extract_plane_from_text_info(
                         ...
         'optics': 'Plan Apo λ 20x'}
     """
+    if "description" not in text_info:
+        raise ValueError("Missing 'description' field in text_info")
+
     plane_regex = rf"Plane #{plane_index}:[\s\S]*?(?=Plane #\d|$)"
     plane_match = re.search(plane_regex, text_info["description"])
     if not plane_match:  # only one channel
@@ -442,14 +457,20 @@ def _extract_plane_from_text_info(
         return plane_match.group(0)
 
 
-def _parse_timestamp_from_text_info(text_info: str) -> datetime:
+def _parse_timestamp_from_text_info(text_info: TextInfo) -> datetime:
     """Parse timestamp from `nd2.ND2File.text_info`."""
+    if "date" not in text_info:
+        raise ValueError("Missing 'date' field in text_info")
+
     timestamp = text_info["date"]
     return datetime.strptime(timestamp, "%m/%d/%Y %I:%M:%S %p")
 
 
-def _parse_dimensions_from_text_info(text_info: str) -> str:
+def _parse_dimensions_from_text_info(text_info: TextInfo) -> str:
     """"""
+    if "description" not in text_info:
+        raise ValueError("Missing 'description' field in text_info")
+
     dimensions = ""
     description = text_info["description"]
     for line in description.splitlines():
@@ -499,18 +520,18 @@ def _parse_laser_power_from_plane(plane_text: str) -> float | None:
     return laser_power_pct
 
 
-def _convert_time_to_ms(time: str, unit: str) -> float:
+def _convert_time_to_ms(time: str | float, unit: str) -> float:
     """Converts time to milliseconds."""
-    time = float(time)
+    time_value = float(time)
     if "h" in unit:
-        return 3600 * 1000 * time
+        return 3600 * 1000 * time_value
     elif unit == "min":
-        return 60 * 1e3 * time
+        return 60 * 1e3 * time_value
     elif unit == "s":
-        return 1e3 * time
+        return 1e3 * time_value
     elif unit == "ms":
-        return time
+        return time_value
     elif unit == "us" or unit == "µs":
-        return 1e-3 * time
+        return 1e-3 * time_value
     else:
         raise ValueError(f"Unknown unit of time: {unit}.")

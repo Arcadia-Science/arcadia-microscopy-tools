@@ -44,9 +44,9 @@ class SegmentationModel:
     cell_diameter_px: int = 30
     flow_threshold: float = 0.4
     cellprob_threshold: float = 0
-    num_iterations: int = None
-    device: torch.device = field(default=None)
-    _model: CellposeModel = field(default=None, init=False, repr=False)
+    num_iterations: int | None = None
+    device: torch.device | None = field(default=None)
+    _model: CellposeModel | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
         """Validate parameters after initialization."""
@@ -73,8 +73,7 @@ class SegmentationModel:
             try:
                 self._model = CellposeModel(device=self.device)
             except Exception as e:
-                logger.error(f"Failed to load Cellpose model: {e}")
-                raise RuntimeError from e
+                raise RuntimeError(f"Failed to load Cellpose model: {e}") from e
         return self._model
 
     def find_best_available_device(self) -> torch.device:
@@ -106,7 +105,7 @@ class SegmentationModel:
         self,
         batch_intensities: list[FloatArray],
         batch_size: int = 8,
-        **cellpose_kwargs: dict[str, Any],
+        **cellpose_kwargs: Any,
     ) -> Int64Array:
         """Run cell segmentation using Cellpose.
 
@@ -153,7 +152,6 @@ class SegmentationModel:
                 **cellpose_kwargs,
             )
         except Exception as e:
-            logger.error(f"Cellpose segmentation failed: {e}")
-            raise RuntimeError from e
+            raise RuntimeError(f"Cellpose segmentation failed: {e}") from e
 
         return np.array(masks_uint16, dtype=np.int64)
