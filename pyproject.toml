@@ -55,6 +55,9 @@ dev = [
 lint = [
     "ruff>=0.12.7",
 ]
+typing = [
+    "pyright>=1.1.407",
+]
 
 [tool.ruff.lint.isort]
 order-by-type = true
