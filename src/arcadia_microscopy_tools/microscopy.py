@@ -57,7 +57,7 @@ class Channel(Enum):
     TRITC = auto()  # red
     CY5 = auto()  # far red
 
-    def __init__(self, *args):
+    def __init__(self, *args) -> None:
         super().__init__()
         self.excitation_nm = CHANNEL_EXCITATION_PEAKS_NM.get(self.name)
         self.emission_nm = CHANNEL_EMISSION_PEAKS_NM.get(self.name)
@@ -90,7 +90,7 @@ class ChannelMetadata:
     Contains physical and acquisition parameters for a specific imaging channel.
     """
 
-    channel: Channel | None = None
+    channel: Channel
     timestamp: datetime | None = None
     height_px: int | None = None
     width_px: int | None = None
@@ -273,12 +273,12 @@ class MicroscopyImage:
         return cls(intensities, metadata)
 
     @property
-    def shape(self):
+    def shape(self) -> tuple[int, ...]:
         """Get the shape of the intensity array."""
         return self.intensities.shape
 
     @property
-    def channels(self):
+    def channels(self) -> list[Channel]:
         """Get the list of channels in this image."""
         if self.metadata.image is None:
             raise ValueError("No image metadata available")
@@ -288,7 +288,7 @@ class MicroscopyImage:
         ]
 
     @property
-    def num_channels(self):
+    def num_channels(self) -> int:
         """Get the number of channels in this image."""
         return len(self.channels)
 
