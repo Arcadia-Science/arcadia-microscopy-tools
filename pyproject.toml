@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 dependencies = [
+    "arcadia-pycolor>=0.6.5",
     "cellpose>=4.0.6",
     "nd2>=0.10.3",
     "numpy<2.1",
