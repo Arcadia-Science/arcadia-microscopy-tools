@@ -167,12 +167,12 @@ class ImageBatch:
 
     @property
     def channels(self) -> list[Channel]:
-        """Return a sorted list of unique channels that appear in at least one of the images."""
+        """Return a list of unique channels that appear in at least one of the images."""
         if not self.images:
             return []
 
         _channels = set(channel for image in self.images for channel in image.channels)
-        return sorted(_channels, key=lambda c: c.value)
+        return list(_channels)
 
     @classmethod
     def from_paths(
