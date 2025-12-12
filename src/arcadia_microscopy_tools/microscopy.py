@@ -295,11 +295,19 @@ class MicroscopyImage:
     def get_intensities_from_channel(self, channel: Channel | str) -> UInt16Array:
         """Extract intensity data for a specific channel.
 
+        Returns all data for the requested channel, preserving temporal and spatial
+        dimensions (e.g., time-lapse or Z-stack).
+
         Args:
             channel: The channel to extract, either as Channel enum or string name.
 
         Returns:
-            UInt16Array: The intensity values for the specified channel.
+            Intensity array for the specified channel. Shape depends on acquisition:
+            - 2D single frame: (Y, X)
+            - Time-lapse: (T, Y, X)
+            - Z-stack: (Z, Y, X)
+            - Multi-channel 2D: (Y, X)
+            - Multi-channel time-lapse/Z-stack: (T, Y, X) or (Z, Y, X)
 
         Raises:
             ValueError: If the specified channel is not in this image.
@@ -307,14 +315,18 @@ class MicroscopyImage:
         if isinstance(channel, str):
             channel = Channel[channel]
 
-        if channel in self.channels:
-            if self.intensities.ndim > 2:
-                channel_index = self.channels.index(channel)
-                return self.intensities[channel_index, ...].copy()
-            else:
-                return self.intensities.copy()
-        else:
+        if channel not in self.channels:
             raise ValueError(f"No '{channel.name}' channel in image.")
+
+        # Single channel - return all data (may include T or Z dimensions)
+        if self.num_channels == 1:
+            return self.intensities.copy()
+
+        # Multi-channel - extract the specific channel
+        # Assumes first axis is channel dimension for multi-channel data
+        # TODO: Parse metadata.image.dimensions to determine axis order
+        channel_index = self.channels.index(channel)
+        return self.intensities[channel_index, ...].copy()
 
     def get_brightfield_intensities(self) -> UInt16Array:
         """Extract intensity data for the brightfield channel."""
