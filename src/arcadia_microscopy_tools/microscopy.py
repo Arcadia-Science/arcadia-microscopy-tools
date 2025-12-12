@@ -2,45 +2,16 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum, auto
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 import nd2
-from nd2.structures import Color, TextInfo
+from arcadia_pycolor import HexCode
+from nd2.structures import TextInfo
 
+from .nikon import NIKON_OPTICAL_CONFIGS_MAP
 from .typing import UInt16Array
-
-CHANNEL_EXCITATION_PEAKS_NM = {
-    "DAPI": 405,
-    "FITC": 488,
-    "TRITC": 561,
-    "CY5": 640,
-}
-CHANNEL_EMISSION_PEAKS_NM = {
-    "DAPI": 450,
-    "FITC": 512,
-    "TRITC": 595,
-    "CY5": 665,
-}
-CHANNEL_COLORS_RGB = {
-    "BF": Color(255, 255, 255),
-    "DIC": Color(255, 255, 255),
-    "DAPI": Color(0, 51, 255),
-    "FITC": Color(7, 255, 0),
-    "TRITC": Color(255, 191, 0),
-    "CY5": Color(163, 0, 0),
-}
-
-NIKON_OPTICAL_CONFIGS_MAP = {
-    "Mono": "BF",
-    "DAPI": "DAPI",
-    "FITC BP": "FITC",
-    "TRITC BP": "TRITC",
-    "GFP 488 nm": "FITC",
-    "640 nm": "CY5",
-    "DIC 40x": "DIC",
-}
 
 
 class Channel(Enum):
@@ -50,18 +21,18 @@ class Channel(Enum):
     Each channel has associated excitation/emission wavelengths and display colors when applicable.
     """
 
-    BF = auto()  # brightfield
-    DIC = auto()  # differential interference contrast
-    DAPI = auto()  # blue
-    FITC = auto()  # green
-    TRITC = auto()  # red
-    CY5 = auto()  # far red
+    # (excitation_nm, emission_nm, color)
+    BF = (None, None, HexCode("brightfield", "#ffffff"))  # brightfield
+    DIC = (None, None, HexCode("dic", "#ffffff"))  # differential interference contrast
+    DAPI = (405, 450, HexCode("dapi", "#0033ff"))  # blue
+    FITC = (488, 512, HexCode("fitc", "#07ff00"))  # green
+    TRITC = (561, 595, HexCode("tritc", "#ffbf00"))  # red
+    CY5 = (640, 665, HexCode("cy5", "#a30000"))  # far red
 
-    def __init__(self, *args) -> None:
-        super().__init__()
-        self.excitation_nm = CHANNEL_EXCITATION_PEAKS_NM.get(self.name)
-        self.emission_nm = CHANNEL_EMISSION_PEAKS_NM.get(self.name)
-        self.color = CHANNEL_COLORS_RGB.get(self.name)
+    def __init__(self, excitation_nm: int | None, emission_nm: int | None, color: HexCode) -> None:
+        self.excitation_nm = excitation_nm
+        self.emission_nm = emission_nm
+        self.color = color
 
     @classmethod
     def from_optical_config_name(cls, optical_config: str) -> Channel:
