@@ -2,7 +2,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import Enum, auto
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +10,6 @@ import nd2
 from arcadia_pycolor import HexCode
 from nd2.structures import TextInfo
 
-from .nikon import NIKON_OPTICAL_CONFIGS_MAP
 from .typing import UInt16Array
 
 
@@ -21,22 +20,38 @@ class Channel(Enum):
     Each channel has associated excitation/emission wavelengths and display colors when applicable.
     """
 
-    # (excitation_nm, emission_nm, color)
-    BF = (None, None, HexCode("brightfield", "#ffffff"))  # brightfield
-    DIC = (None, None, HexCode("dic", "#ffffff"))  # differential interference contrast
-    DAPI = (405, 450, HexCode("dapi", "#0033ff"))  # blue
-    FITC = (488, 512, HexCode("fitc", "#07ff00"))  # green
-    TRITC = (561, 595, HexCode("tritc", "#ffbf00"))  # red
-    CY5 = (640, 665, HexCode("cy5", "#a30000"))  # far red
+    BF = auto()  # brightfield
+    DIC = auto()  # differential interference contrast
+    DAPI = auto()  # blue
+    FITC = auto()  # green
+    TRITC = auto()  # red
+    CY5 = auto()  # far red
 
-    def __init__(self, excitation_nm: int | None, emission_nm: int | None, color: HexCode) -> None:
+    def __init__(self, _: int) -> None:
+        metadata = {
+            "BF": (None, None, HexCode("brightfield", "#ffffff")),
+            "DIC": (None, None, HexCode("dic", "#ffffff")),
+            "DAPI": (405, 450, HexCode("dapi", "#0033ff")),
+            "FITC": (488, 512, HexCode("fitc", "#07ff00")),
+            "TRITC": (561, 595, HexCode("tritc", "#ffbf00")),
+            "CY5": (640, 665, HexCode("cy5", "#a30000")),
+        }
+        excitation_nm, emission_nm, color = metadata[self.name]
         self.excitation_nm = excitation_nm
         self.emission_nm = emission_nm
         self.color = color
 
+    def __repr__(self) -> str:
+        ex = f"{self.excitation_nm}nm" if self.excitation_nm else "N/A"
+        em = f"{self.emission_nm}nm" if self.emission_nm else "N/A"
+        return f"Channel.{self.name}(ex={ex}, em={em}, color={self.color})"
+
     @classmethod
     def from_optical_config_name(cls, optical_config: str) -> Channel:
         """Get the Channel enum from the optical configuration name.
+
+        Matches optical_config against Channel enum members by exact match or partial match.
+        Case-insensitive matching is used.
 
         Args:
             optical_config: The name of the optical configuration.
@@ -47,11 +62,23 @@ class Channel(Enum):
         Raises:
             ValueError: If the optical configuration is not recognized.
         """
-        if optical_config in NIKON_OPTICAL_CONFIGS_MAP:
-            channel = NIKON_OPTICAL_CONFIGS_MAP[optical_config]
-            return cls[channel]
-        else:
-            raise ValueError(f"{optical_config} is not a known optical configuration.")
+        optical_config_upper = optical_config.upper()
+
+        # Try exact match first
+        for channel in cls:
+            if channel.name == optical_config_upper:
+                return channel
+
+        # Handle special cases/known aliases
+        if optical_config.lower() == "mono":
+            return cls.BF
+
+        # Try partial match (channel name appears in optical_config)
+        for channel in cls:
+            if channel.name in optical_config_upper:
+                return channel
+
+        raise ValueError(f"{optical_config} is not a known optical configuration.")
 
 
 @dataclass
