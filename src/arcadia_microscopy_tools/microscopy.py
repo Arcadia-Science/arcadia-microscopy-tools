@@ -234,6 +234,8 @@ class MicroscopyImage:
         Args:
             nd2_path: Path to the Nikon ND2 file.
             sample_metadata: Optional dictionary containing sample-specific metadata.
+            channels: Optional list of Channel enums to override automatic channel detection.
+                If not provided, channels are inferred from the ND2 file's optical configuration.
 
         Returns:
             MicroscopyImage: A new microscopy image with intensity data and metadata.
