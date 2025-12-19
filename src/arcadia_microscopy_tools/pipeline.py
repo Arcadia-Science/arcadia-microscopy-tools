@@ -145,7 +145,7 @@ class PipelineParallelized:
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             processed = list(executor.map(self._apply_operations, intensities))
 
-        return np.array(processed, dtype=intensities.dtype)
+        return np.array(processed, dtype=intensities.dtype)  # type: ignore
 
     def __len__(self) -> int:
         """Return the number of operations in the pipeline."""
