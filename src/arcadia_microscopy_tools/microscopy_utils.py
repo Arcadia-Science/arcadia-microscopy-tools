@@ -41,34 +41,6 @@ class DimensionFlags(Flag):
         return bool(self & DimensionFlags.MONTAGE)
 
 
-class Modality(StrEnum):
-    """
-    Docstring for Modality
-    """
-
-    BRIGHTFIELD = "brightfield"
-    FLUORESCENCE = "fluorescence"
-    PHASE_CONTRAST = "phase_contrast"
-    DIC = "dic"
-    CONFOCAL = "confocal"
-    SPECTRAL = "spectral"
-    FLIM = "flim"
-    MULTIPHOTON = "multiphoton"
-
-
-class ValueType(StrEnum):
-    """
-    Docstring for ValueType
-    """
-
-    INTENSITY = "intensity"
-    PHASE = "phase"
-    LIFETIME = "lifetime"
-    LABEL = "label"
-    PROBABILITY = "probability"
-    SPECTRUM = "spectrum"
-
-
 @dataclass
 class AcquisitionSettings:
     """"""
