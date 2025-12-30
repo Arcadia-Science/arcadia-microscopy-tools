@@ -119,7 +119,7 @@ class Channel:
         """
         if not 360 <= wavelength_nm <= 780:
             raise ValueError(
-                "Wavelength must be near the visible range between 360 and 780 nm, got "
+                "Wavelength must be within the visible range (between 360 and 780 nm), got "
                 f"{wavelength_nm} nm"
             )
 
