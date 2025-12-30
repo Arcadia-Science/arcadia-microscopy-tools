@@ -1,7 +1,8 @@
 version = 1
 requires-python = ">=3.12"
 resolution-markers = [
-    "python_full_version < '3.14'",
+    "python_full_version < '3.13'",
+    "python_full_version == '3.13.*'",
     "python_full_version >= '3.14'",
 ]
 
@@ -44,6 +45,8 @@ source = { virtual = "." }
 dependencies = [
     { name = "arcadia-pycolor" },
     { name = "cellpose" },
+    { name = "colour-science" },
+    { name = "liffile" },
     { name = "nd2" },
     { name = "numpy" },
     { name = "pytest" },
@@ -69,6 +72,8 @@ typing = [
 requires-dist = [
     { name = "arcadia-pycolor", specifier = ">=0.6.5" },
     { name = "cellpose", specifier = ">=4.0.6" },
+    { name = "colour-science", specifier = ">=0.4.7" },
+    { name = "liffile", specifier = ">=2025.12.12" },
     { name = "nd2", specifier = ">=0.10.3" },
     { name = "numpy", specifier = "<2.1" },
     { name = "pytest", specifier = ">=8.4.1" },
@@ -145,7 +150,8 @@ name = "argon2-cffi-bindings"
 version = "25.1.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version < '3.14'",
+    "python_full_version < '3.13'",
+    "python_full_version == '3.13.*'",
 ]
 dependencies = [
     { name = "cffi", marker = "python_full_version < '3.14'" },
@@ -394,6 +400,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/75/e4/aa41ae14c5c061205715006c8834496d86ec7500f1edda5981f0f0190cc6/colorspacious-1.1.2.tar.gz", hash = "sha256:5e9072e8cdca889dac445c35c9362a22ccf758e97b00b79ff0d5a7ba3e11b618", size = 688573 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ab/a1/318b9aeca7b9856410ededa4f52d6f82174d1a41e64bdd70d951e532675a/colorspacious-1.1.2-py2.py3-none-any.whl", hash = "sha256:c78befa603cea5dccb332464e7dd29e96469eebf6cd5133029153d1e69e3fd6f", size = 37735 },
+]
+
+[[package]]
+name = "colour-science"
+version = "0.4.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f4/66/6e2216ffae6f0008118c99d6f425f7591e688671ab99f5636f7f65021395/colour_science-0.4.7.tar.gz", hash = "sha256:b34773dc4dd3f9ba99cca5297fa10e9f532134d994b3a2308dacbe970dfd5079", size = 13283171 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6d/9e/ce54e33f383d7e1432be9fb39557477779ccb155c60033c491609936dacf/colour_science-0.4.7-py3-none-any.whl", hash = "sha256:fe2383d86e507fc11a4b5206ff31a7399031e0dce527e22ec06eeb491d45d9a7", size = 9065613 },
 ]
 
 [[package]]
@@ -1260,6 +1278,18 @@ wheels = [
 ]
 
 [[package]]
+name = "liffile"
+version = "2025.12.12"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d9/e9/5ed108a9791d1cb3fac26f0a6a581e5faeebab0038c98192a0546d73eb2e/liffile-2025.12.12.tar.gz", hash = "sha256:016ad93be5f0207224cdbf1f71749ca074348d4aa52b6b5dbfced6325c9e5407", size = 38965 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/79/ea/0459a53a913501435dbfe2b8318fe06b707230fa39d6e27e28b53ccf99a4/liffile-2025.12.12-py3-none-any.whl", hash = "sha256:42c7cd169cd2f467746f55a4ec8e65984c026603a65889a4ab511a9fb4976b73", size = 25950 },
+]
+
+[[package]]
 name = "locket"
 version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1465,17 +1495,18 @@ wheels = [
 
 [[package]]
 name = "nd2"
-version = "0.10.3"
+version = "0.10.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "ome-types" },
+    { name = "pydantic-core", marker = "python_full_version >= '3.13'" },
     { name = "resource-backed-dask-array" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/01/7d/8d8dfe95f18a1574b681f6282f6b27abf3f8ac5671e9afb8203f62791cae/nd2-0.10.3.tar.gz", hash = "sha256:2511751320cb336603ca98dcf92b35620fd4d5e8e66c94bfe82732fc0995d643", size = 857448 }
+sdist = { url = "https://files.pythonhosted.org/packages/9a/19/99919c3d702b050ca1527020dd50ed5b39ecfec191f2424201946de27ea0/nd2-0.10.4.tar.gz", hash = "sha256:cce1abfb4e0ae31bc307b5f49b8c514190e29105af52c6d59de4105f9aade70a", size = 858647 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f6/b9/81c0e71913de74c58f9793acdb26ac450ec2ac24aed3a5e18363a2ee537e/nd2-0.10.3-py3-none-any.whl", hash = "sha256:67f3f057eb8d8ea089d0313b112792f4a733d2760538c19f98b424fb04126603", size = 83553 },
+    { url = "https://files.pythonhosted.org/packages/15/0f/9b9cd1e74849e75b4e4df3337232c084b99e2d3e2916fbc87276d2e49bea/nd2-0.10.4-py3-none-any.whl", hash = "sha256:1cd0f07d1cc9d2eb2caf19047884c7c9cbfb0a1f1701099ffd32fe4a8de377f5", size = 83673 },
 ]
 
 [[package]]
@@ -1693,16 +1724,17 @@ wheels = [
 
 [[package]]
 name = "ome-types"
-version = "0.6.1"
+version = "0.6.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
+    { name = "pydantic-core", marker = "python_full_version >= '3.13'" },
     { name = "pydantic-extra-types" },
     { name = "xsdata" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cb/49/f9d313e03eefb4a7f81d1edba8493a4a40ef622bb48bab2f03600ee1ad86/ome_types-0.6.1.tar.gz", hash = "sha256:49e7a79ac90f8e4c33392f285491cb2577d41f2583bb879307c4f5ba9436e721", size = 121623 }
+sdist = { url = "https://files.pythonhosted.org/packages/48/4c/d252c1619c733eec9b4d2d21fe369fd21a2594954b396bf4352edea1e272/ome_types-0.6.3.tar.gz", hash = "sha256:eef4138cda5edfdcb2a44cfb90b714a59ead1b69e4c5ce5f9892ad397ccaaa68", size = 121784 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/93/c7/5d63372b13bfe9eaff26d540e7a1d2da5f0b4d82a5cbe634b638f1df61a3/ome_types-0.6.1-py3-none-any.whl", hash = "sha256:128f9bd5f52212cf37dad087ee4a7df939ccbf40a328d986e0bf9ac564abd4e9", size = 245142 },
+    { url = "https://files.pythonhosted.org/packages/fc/6a/1000cad1700ab0af4d1b1d0a9c23c34badddb4f547c008bde2a6c61968f1/ome_types-0.6.3-py3-none-any.whl", hash = "sha256:ce9753ff351bbc534ee5c5038d3cf60b1e4c13d69ad2e6b5a5b75de2a52521a5", size = 245802 },
 ]
 
 [[package]]
@@ -2844,12 +2876,12 @@ wheels = [
 
 [[package]]
 name = "xsdata"
-version = "24.3.1"
+version = "25.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/af/da/bce6f30a2b85bb258bd3c282258c3cec294ef6c3214397ca22349bcb515b/xsdata-24.3.1.tar.gz", hash = "sha256:cf6c6895616260cbe2a4eff6f8f906cd16f9c1dba8fd8561e500b91269b86616", size = 330034 }
+sdist = { url = "https://files.pythonhosted.org/packages/50/cf/d393286e40f7574c5d662a3ceefcf8e4cd65e73af6e54db0585c5b17c541/xsdata-25.7.tar.gz", hash = "sha256:1291ef759f4663baadb86562be4c25ebfc0003ca0debae3042b0067663f0c548", size = 345469 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e9/ac/27a6fcf61c64549a17b9eaa087ae7876417b5ed9efb6efdec8b52289cae4/xsdata-24.3.1-py3-none-any.whl", hash = "sha256:2f4a00ec33fb6ff41fca95f3fac826b83fc34d8644e2f3da830ad393defb5705", size = 224141 },
+    { url = "https://files.pythonhosted.org/packages/79/10/c866e7b0fd57c92a4d5676884b81383005d81f8d7f07f1ac17e9c0ab3643/xsdata-25.7-py3-none-any.whl", hash = "sha256:d50b8c39389fd2b7283767a68a80cbf3bc51a3ede9cc3fefb30e84a52c999a9d", size = 234469 },
 ]

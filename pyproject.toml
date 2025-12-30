@@ -8,6 +8,8 @@ license = { file = "LICENSE" }
 dependencies = [
     "arcadia-pycolor>=0.6.5",
     "cellpose>=4.0.6",
+    "colour-science>=0.4.7",
+    "liffile>=2025.12.12",
     "nd2>=0.10.3",
     "numpy<2.1",
     "pytest>=8.4.1",
