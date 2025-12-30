@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from enum import Flag, StrEnum, auto
+from datetime import datetime
+from enum import Flag, auto
 
 from .channels import Channel
 
@@ -10,7 +11,7 @@ class DimensionFlags(Flag):
 
     SPATIAL_2D = auto()
     MULTICHANNEL = auto()
-    TIME_SERIES = auto()
+    TIMELAPSE = auto()
     Z_STACK = auto()
     SPECTRAL = auto()
     RGB = auto()
@@ -22,7 +23,7 @@ class DimensionFlags(Flag):
 
     @property
     def is_timelapse(self) -> bool:
-        return bool(self & DimensionFlags.TIME_SERIES)
+        return bool(self & DimensionFlags.TIMELAPSE)
 
     @property
     def is_zstack(self) -> bool:
@@ -42,25 +43,46 @@ class DimensionFlags(Flag):
 
 
 @dataclass
+class PhysicalDimensions:
+    """"""
+
+    height_px: int
+    width_px: int
+    pixel_size_um: tuple[float, float]
+
+    # Relevant for Z_STACK
+    thickness_px: int | None = None
+    z_step_size_um: float | None = None
+
+
+@dataclass
 class AcquisitionSettings:
     """"""
 
-    exposure_time_ms: float | None = None
-    zoom: float | None = None
-    binning: str | None = None
+    exposure_time_ms: float
+    zoom: float | None
+    binning: str | None
+
+    # Relevant for TIMELAPSE
     period_ms: float | None = None
     duration_s: float | None = None
-    laser_power_pct: float | None = None
+
+    # Relevant for SPECTRAL
+    min_wavelength_nm: float | None = None
+    max_wavelength_nm: float | None = None
+    min_wavenumber_cm1: float | None = None
+    max_wavenumber_cm1: float | None = None
 
 
 @dataclass
 class MicroscopeSettings:
     """"""
 
+    magnification: int
+    numerical_aperture: float
     objective: str | None = None
-    magnification: float | None = None
-    numerical_aperture: float | None = None
     light_source: str | None = None
+    laser_power_mw: float | None = None
 
 
 @dataclass
@@ -70,6 +92,7 @@ class ChannelMetadata:
     """
 
     channel: Channel
+    timestamp: datetime
     resolution: PhysicalDimensions
     acquisition: AcquisitionSettings
     optics: MicroscopeSettings
