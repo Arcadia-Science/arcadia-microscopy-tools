@@ -181,7 +181,10 @@ class _NikonMetadataParser:
             wavelengths_nm=None,  # TODO: extract wavelengths for spectral data
         )
 
-    def _parse_microscope_settings(self, nd2_channel: nd2.structures.Channel) -> MicroscopeSettings:
+    def _parse_microscope_settings(
+        self,
+        nd2_channel: nd2.structures.Channel,
+    ) -> MicroscopeSettings:
         """Parse microscope settings from nd2 channel metadata."""
         magnification = nd2_channel.microscope.objectiveMagnification
         numerical_aperture = nd2_channel.microscope.objectiveNumericalAperture
