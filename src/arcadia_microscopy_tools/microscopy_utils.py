@@ -73,7 +73,7 @@ class PhysicalDimensions(DimensionValidatorMixin):
 
     height_px: int
     width_px: int
-    pixel_size_um: tuple[float, float]
+    pixel_size_um: float
     thickness_px: int | None = dimension_field(DimensionFlags.Z_STACK)
     z_step_size_um: float | None = dimension_field(DimensionFlags.Z_STACK)
 
