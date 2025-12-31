@@ -60,6 +60,13 @@ class _NikonMetadataParser:
             raise ValueError(f"No metadata contents available in {self.nd2_path}")
 
         num_channels = self._nd2f.metadata.contents.channelCount
+
+        # Validate channels list length if provided
+        if self.channels is not None and len(self.channels) != num_channels:
+            raise ValueError(
+                f"Expected {num_channels} channels but got {len(self.channels)} in channels list"
+            )
+
         channel_metadata_list = []
 
         for i in range(num_channels):
@@ -131,21 +138,22 @@ class _NikonMetadataParser:
 
     def _parse_physical_dimensions(
         self,
-        nd2_channel,
+        nd2_channel: nd2.structures.Channel,
         dimensions: DimensionFlags,
     ) -> PhysicalDimensions:
         """Parse physical dimensions from nd2 channel metadata."""
+        pixel_size_um_x, pixel_size_um_y, _ = nd2_channel.volume.axesCalibration
         return PhysicalDimensions(
             height_px=nd2_channel.volume.voxelCount[0],
             width_px=nd2_channel.volume.voxelCount[1],
-            pixel_size_um=tuple(nd2_channel.volume.axesCalibration[:2]),
+            pixel_size_um=(pixel_size_um_x + pixel_size_um_y) / 2,
             thickness_px=nd2_channel.volume.voxelCount[2] if dimensions.is_zstack else None,
             z_step_size_um=nd2_channel.volume.axesCalibration[2] if dimensions.is_zstack else None,
         )
 
     def _parse_acquisition_settings(
         self,
-        nd2_channel,
+        nd2_channel: nd2.structures.Channel,
         channel_index: int,
         dimensions: DimensionFlags,
     ) -> AcquisitionSettings:
@@ -153,7 +161,17 @@ class _NikonMetadataParser:
         sample_text = self._extract_sample_text(channel_index)
         binning = self._parse_binning(sample_text)
         exposure_time_ms = self._parse_exposure_time(sample_text)
-        frame_interval_ms = self._parse_frame_interval() if dimensions.is_timelapse else None
+
+        frame_interval_ms = None
+        if dimensions.is_timelapse:
+            frame_interval_ms = self._parse_frame_interval()
+            # If periodMs is 0 or missing, try to calculate from duration and frame count
+            if frame_interval_ms is None or frame_interval_ms == 0:
+                duration_ms = self._parse_duration()
+                if duration_ms and "T" in self._nd2f.sizes:
+                    num_frames = self._nd2f.sizes["T"]
+                    if num_frames > 1:
+                        frame_interval_ms = duration_ms / num_frames
 
         return AcquisitionSettings(
             exposure_time_ms=exposure_time_ms or 0.0,
@@ -163,11 +181,14 @@ class _NikonMetadataParser:
             wavelengths_nm=None,  # TODO: extract wavelengths for spectral data
         )
 
-    def _parse_microscope_settings(self, nd2_channel) -> MicroscopeSettings:
+    def _parse_microscope_settings(self, nd2_channel: nd2.structures.Channel) -> MicroscopeSettings:
         """Parse microscope settings from nd2 channel metadata."""
+        magnification = nd2_channel.microscope.objectiveMagnification
+        numerical_aperture = nd2_channel.microscope.objectiveNumericalAperture
+
         return MicroscopeSettings(
-            magnification=int(nd2_channel.microscope.objectiveMagnification),
-            numerical_aperture=nd2_channel.microscope.objectiveNumericalAperture,
+            magnification=int(magnification) if magnification is not None else 0,
+            numerical_aperture=numerical_aperture or 0.0,
             objective=nd2_channel.microscope.objectiveName,
             light_source=None,  # TODO: extract light source info
             laser_power_mw=None,  # TODO: convert laser_power_pct to mW
@@ -228,11 +249,19 @@ class _NikonMetadataParser:
         return None
 
     def _parse_frame_interval(self) -> float | None:
-        """Parse frame interval from experiment metadata."""
+        """Parse frame interval (period) from experiment metadata."""
         if self._nd2f.experiment:
             for loop in self._nd2f.experiment:
                 if loop.type == "TimeLoop":
                     return loop.parameters.periodMs
+        return None
+
+    def _parse_duration(self) -> float | None:
+        """Parse total duration from experiment metadata."""
+        if self._nd2f.experiment:
+            for loop in self._nd2f.experiment:
+                if loop.type == "TimeLoop":
+                    return loop.parameters.durationMs
         return None
 
     def _parse_laser_power(self, plane_text: str) -> float | None:
