@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import Field, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Flag, auto
 from typing import TYPE_CHECKING
@@ -8,6 +8,7 @@ from .channels import Channel
 from .typing import FloatArray
 
 if TYPE_CHECKING:
+    from dataclasses import Field
     from typing import Any
 
 
