@@ -38,11 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MicroscopyImage.get_intensities_from_channel()` now uses `channel_axis` from metadata instead of assuming axis 0
 - Proper handling of None values in microscope settings (magnification, NA)
 
-## [0.1.0] - 2025-12-XX
+## [0.1.0] - 2025-08-06
 
 ### Added
 - Initial release
 - Basic microscopy image processing tools
 - Cell/particle segmentation with Cellpose integration
-- Support for Nikon ND2 and Leica LIF file formats
+- Support for Nikon ND2 file formats
 - Channel management and fluorescence quantification
