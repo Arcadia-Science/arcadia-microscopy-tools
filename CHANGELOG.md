@@ -38,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MicroscopyImage.get_intensities_from_channel()` now uses `channel_axis` from metadata instead of assuming axis 0
 - Proper handling of None values in microscope settings (magnification, NA)
 
+### Removed
+- `batch.py` module and related test modules (`test_batch_generator.py`, `test_image_batch.py`)
+
 ## [0.1.0] - 2025-08-06
 
 ### Added
