@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 import nd2
+import numpy as np
 from nd2.structures import TextInfo
 
 from .channels import Channel
@@ -15,6 +16,7 @@ from .microscopy_utils import (
     MicroscopeSettings,
     PhysicalDimensions,
 )
+from .typing import FloatArray
 
 
 def create_image_metadata_from_nd2(
@@ -124,7 +126,7 @@ class _NikonMetadataParser:
             dimensions |= DimensionFlags.RGB
 
         # TODO: Add checks for SPECTRAL, MONTAGE
-        # MONTAGE might be "XY"
+        # - MONTAGE might be "XY"
 
         return dimensions
 
@@ -162,22 +164,15 @@ class _NikonMetadataParser:
         binning = self._parse_binning(sample_text)
         exposure_time_ms = self._parse_exposure_time(sample_text)
 
-        frame_interval_ms = None
+        frame_intervals_ms = None
         if dimensions.is_timelapse:
-            frame_interval_ms = self._parse_frame_interval()
-            # If periodMs is 0 or missing, try to calculate from duration and frame count
-            if frame_interval_ms is None or frame_interval_ms == 0:
-                duration_ms = self._parse_duration()
-                if duration_ms and "T" in self._nd2f.sizes:
-                    num_frames = self._nd2f.sizes["T"]
-                    if num_frames > 1:
-                        frame_interval_ms = duration_ms / num_frames
+            frame_intervals_ms = self._parse_frame_intervals()
 
         return AcquisitionSettings(
             exposure_time_ms=exposure_time_ms or 0.0,
             zoom=nd2_channel.microscope.zoomMagnification,
             binning=binning,
-            frame_interval_ms=frame_interval_ms,
+            frame_intervals_ms=frame_intervals_ms,
             wavelengths_nm=None,  # TODO: extract wavelengths for spectral data
         )
 
@@ -194,7 +189,7 @@ class _NikonMetadataParser:
             numerical_aperture=numerical_aperture or 0.0,
             objective=nd2_channel.microscope.objectiveName,
             light_source=None,  # TODO: extract light source info
-            laser_power_mw=None,  # TODO: convert laser_power_pct to mW
+            power_mw=None,  # TODO: convert power_pct to mW
         )
 
     def _extract_sample_text(self, channel_index: int) -> str:
@@ -248,26 +243,19 @@ class _NikonMetadataParser:
                 match = re.search(pattern, line)
                 if match:
                     time, unit = match.groups()
-                    return self._convert_time_to_ms(time, unit)
+                    time_s = self._convert_time_to_s(time, unit)
+                    return time_s * 1000  # Convert to ms for AcquisitionSettings
         return None
 
-    def _parse_frame_interval(self) -> float | None:
-        """Parse frame interval (period) from experiment metadata."""
-        if self._nd2f.experiment:
-            for loop in self._nd2f.experiment:
-                if loop.type == "TimeLoop":
-                    return loop.parameters.periodMs
+    def _parse_frame_intervals(self) -> FloatArray | None:
+        """Parse frame intervals from events metadata."""
+        if self._nd2f.events():
+            acquisition_start_times_s = [event["Time [s]"] for event in self._nd2f.events()]
+            frame_intervals_s = np.diff(acquisition_start_times_s)
+            return frame_intervals_s * 1000.0  # Convert to ms for AcquisitionSettings
         return None
 
-    def _parse_duration(self) -> float | None:
-        """Parse total duration from experiment metadata."""
-        if self._nd2f.experiment:
-            for loop in self._nd2f.experiment:
-                if loop.type == "TimeLoop":
-                    return loop.parameters.durationMs
-        return None
-
-    def _parse_laser_power(self, plane_text: str) -> float | None:
+    def _parse_power(self, plane_text: str) -> float | None:
         """Parse laser power percentage from plane text."""
         pattern = r"Power:\s*(-?\d+(\.\d*)?|-?\.\d+)"
         for line in plane_text.splitlines():
@@ -278,18 +266,18 @@ class _NikonMetadataParser:
         return None
 
     @staticmethod
-    def _convert_time_to_ms(time: str | float, unit: str) -> float:
-        """Convert time to milliseconds from various units."""
+    def _convert_time_to_s(time: str | float, unit: str) -> float:
+        """Convert time to seconds from various units."""
         time_value = float(time)
         if "h" in unit:
-            return 3600 * 1000 * time_value
+            return 3600 * time_value
         elif unit == "min":
-            return 60 * 1000 * time_value
+            return 60 * time_value
         elif unit == "s":
-            return 1000 * time_value
-        elif unit == "ms":
             return time_value
+        elif unit == "ms":
+            return time_value / 1000
         elif unit in ("us", "µs"):
-            return 0.001 * time_value
+            return time_value / 1_000_000
         else:
             raise ValueError(f"Unknown unit of time: {unit}")
