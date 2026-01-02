@@ -19,7 +19,7 @@ class ImageMetadata:
     Contains metadata for all channels in the image.
 
     Attributes:
-        sizes: Dictionary mapping dimension names to sizes (e.g., {'T': 100, 'C': 2, 'Y': 512, 'X': 512}).
+        sizes: Mapping of dimensions to sizes (e.g., {'T': 100, 'C': 2, 'Y': 512, 'X': 512}).
         channel_metadata_list: List of ChannelMetadata objects for each channel in the image.
         channel_axis: Axis index for the channel dimension, or None if single channel.
         dimensions: Dimension flags indicating which dimensions are present in the image.
