@@ -86,28 +86,28 @@ class MicroscopyImage:
     intensities: UInt16Array
     metadata: Metadata
 
-    # @classmethod
-    # def from_nd2_path(
-    #     cls,
-    #     nd2_path: Path,
-    #     sample_metadata: dict[str, Any] | None = None,
-    #     channels: list[Channel] | None = None,
-    # ) -> MicroscopyImage:
-    #     """Create MicroscopyImage from a Nikon ND2 file.
+    @classmethod
+    def from_nd2_path(
+        cls,
+        nd2_path: Path,
+        channels: list[Channel] | None = None,
+        sample_metadata: dict[str, Any] | None = None,
+    ) -> MicroscopyImage:
+        """Create MicroscopyImage from a Nikon ND2 file.
 
-    #     Args:
-    #         nd2_path: Path to the Nikon ND2 file.
-    #         sample_metadata: Optional dictionary containing sample-specific metadata.
-    #         channels: Optional list of Channel enums to override automatic channel detection.
-    #             If not provided, channels are inferred from the ND2 file's optical configuration.
+        Args:
+            nd2_path: Path to the Nikon ND2 file.
+            channels: Optional list of Channel objects to override automatic channel detection.
+                If not provided, channels are inferred from the ND2 file's optical configuration.
+            sample_metadata: Optional dictionary containing sample-specific metadata.
 
-    #     Returns:
-    #         MicroscopyImage: A new microscopy image with intensity data and metadata.
-    #     """
-    #     intensities = nd2.imread(nd2_path)
-    #     image_metadata = ImageMetadata.from_nd2_path(nd2_path, channels)
-    #     metadata = Metadata(image_metadata, sample_metadata)
-    #     return cls(intensities, metadata)
+        Returns:
+            MicroscopyImage: A new microscopy image with intensity data and metadata.
+        """
+        intensities = nd2.imread(nd2_path)
+        image_metadata = ImageMetadata.from_nd2_path(nd2_path, channels)
+        metadata = Metadata(image_metadata, sample_metadata)
+        return cls(intensities, metadata)
 
     @property
     def shape(self) -> tuple[int, ...]:
