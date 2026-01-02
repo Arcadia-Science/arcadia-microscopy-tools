@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,12 @@ class ImageMetadata:
     """Image metadata for a microscopy image.
 
     Contains metadata for all channels in the image.
+
+    Attributes:
+        sizes: Dictionary mapping dimension names to sizes (e.g., {'T': 100, 'C': 2, 'Y': 512, 'X': 512}).
+        channel_metadata_list: List of ChannelMetadata objects for each channel in the image.
+        channel_axis: Axis index for the channel dimension, or None if single channel.
+        dimensions: Dimension flags indicating which dimensions are present in the image.
     """
 
     sizes: dict[str, int]
@@ -25,9 +32,9 @@ class ImageMetadata:
     def channel_axis(self) -> int | None:
         """Get the axis index for the channel dimension, or None if single channel."""
         if "C" in self.sizes:
-            return next(i for i, k in enumerate(self.sizes) if k == "C")
+            return next(i for i, k in enumerate(self.sizes.keys()) if k == "C")
 
-    @property
+    @cached_property
     def dimensions(self) -> DimensionFlags:
         """Derive dimension flags by combining from all channels."""
         if not self.channel_metadata_list:
@@ -69,6 +76,10 @@ class Metadata:
     """Combined metadata for a microscopy image of a sample.
 
     Contains both sample-specific metadata and image acquisition metadata.
+
+    Attributes:
+        image: Image acquisition metadata including dimensions and channel information.
+        sample: Optional dictionary containing sample-specific metadata.
     """
 
     image: ImageMetadata | None = None
@@ -81,10 +92,62 @@ class MicroscopyImage:
 
     Contains both the image intensity data and associated metadata for all channels.
     Provides methods to access specific channel data.
+
+    Attributes:
+        intensities: NumPy array containing the image intensity data. Shape depends on
+            acquisition type (e.g., (Y, X) for 2D, (T, Y, X) for time-lapse,
+            (T, C, Y, X) for multi-channel time-lapse).
+        metadata: Combined metadata containing image acquisition metadata and optional
+            sample-specific metadata.
+        shape: The shape of the intensity array.
+        sizes: Dimension sizes dictionary (e.g., {'T': 100, 'C': 2, 'Y': 512, 'X': 512}).
+        dimensions: Dimension flags indicating which dimensions are present in the image.
+        channels: List of Channel objects present in this image.
+        channel_axis: Axis index for the channel dimension, or None if single channel.
+        num_channels: Number of channels in this image.
     """
 
     intensities: UInt16Array
     metadata: Metadata
+
+    def __repr__(self) -> str:
+        """Return a concise string representation of the microscopy image."""
+        dtype_str = f"dtype={self.intensities.dtype}"
+
+        # Show first few and last few intensity values
+        flat = self.intensities.flatten()
+        if len(flat) <= 10:
+            intensity_str = f"intensities={list(flat)}"
+        else:
+            first_vals = flat[:5].tolist()
+            last_vals = flat[-2:].tolist()
+            intensity_str = (
+                f"intensities=[{', '.join(map(str, first_vals))}, ..., "
+                f"{', '.join(map(str, last_vals))}]"
+            )
+
+        # Add dimension/channel info if available
+        try:
+            sizes_str = f"sizes={self.sizes}"
+            channels_str = f"channels={[channel.name for channel in self.channels]}"
+            info = f"{sizes_str}, {channels_str}, {intensity_str}, {dtype_str}"
+        except ValueError:
+            info = f"{intensity_str}, {dtype_str}"
+
+        return f"MicroscopyImage({info})"
+
+    def _get_image_metadata(self) -> ImageMetadata:
+        """Get image metadata or raise a clear error if not available.
+
+        Returns:
+            ImageMetadata: The image metadata.
+
+        Raises:
+            ValueError: If no image metadata is available.
+        """
+        if self.metadata.image is None:
+            raise ValueError("No image metadata available")
+        return self.metadata.image
 
     @classmethod
     def from_nd2_path(
@@ -137,38 +200,30 @@ class MicroscopyImage:
     @property
     def sizes(self) -> dict[str, int]:
         """Get the dimension sizes dictionary (e.g., {'T': 100, 'C': 2, 'Y': 512, 'X': 512})."""
-        if self.metadata.image is None:
-            raise ValueError("No image metadata available")
-        return self.metadata.image.sizes
+        return self._get_image_metadata().sizes
 
     @property
     def dimensions(self) -> DimensionFlags:
         """Get the dimension flags indicating which dimensions are present."""
-        if self.metadata.image is None:
-            raise ValueError("No image metadata available")
-        return self.metadata.image.dimensions
+        return self._get_image_metadata().dimensions
 
     @property
     def channels(self) -> list[Channel]:
         """Get the list of channels in this image."""
-        if self.metadata.image is None:
-            raise ValueError("No image metadata available")
         return [
             channel_metadata.channel
-            for channel_metadata in self.metadata.image.channel_metadata_list
+            for channel_metadata in self._get_image_metadata().channel_metadata_list
         ]
 
     @property
     def channel_axis(self) -> int | None:
         """Get the axis index for the channel dimension, or None if single channel."""
-        if self.metadata.image is None:
-            raise ValueError("No image metadata available")
-        return self.metadata.image.channel_axis
+        return self._get_image_metadata().channel_axis
 
     @property
     def num_channels(self) -> int:
         """Get the number of channels in this image."""
-        return len(self.channels)
+        return len(self._get_image_metadata().channel_metadata_list)
 
     def get_intensities_from_channel(self, channel: Channel) -> UInt16Array:
         """Extract intensity data for a specific channel.
