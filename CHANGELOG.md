@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatic channel detection from optical configuration
   - Frame interval calculation with fallback from duration
   - Support for time-lapse, Z-stack, and RGB dimensions
-- New metadata structure classes in `microscopy_utils.py`:
+- New metadata structure classes in `metadata_structures.py`:
   - `PhysicalDimensions`: height, width, pixel size, z-stack info
   - `AcquisitionSettings`: exposure time, zoom, binning, frame intervals, wavelengths
   - `MicroscopeSettings`: magnification, NA, objective, light source, laser power
@@ -32,7 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MicroscopyImage.from_nd2_path()` class method for loading Nikon ND2 files
 - `MicroscopyImage.from_lif_path()` class method for loading Leica LIF files (metadata parsing TODO)
 - Convenience properties on `MicroscopyImage`: `sizes`, `dimensions`, `channel_axis`
-- Custom `__repr__` for `AcquisitionSettings` that shows mean/std of frame intervals
 
 ### Fixed
 - `MicroscopyImage.get_intensities_from_channel()` now uses `channel_axis` from metadata instead of assuming axis 0
