@@ -65,3 +65,7 @@ typing = [
 [tool.ruff.lint.isort]
 order-by-type = true
 no-lines-before = ["future", "standard-library"]
+
+[tool.pyright]
+include = ["src"]
+exclude = ["build", "dist"]
