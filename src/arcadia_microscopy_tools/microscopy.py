@@ -135,6 +135,20 @@ class MicroscopyImage:
         return self.intensities.shape
 
     @property
+    def sizes(self) -> dict[str, int]:
+        """"""
+        if self.metadata.image is None:
+            raise ValueError("No image metadata available")
+        return self.metadata.image.sizes
+
+    @property
+    def dimensions(self) -> DimensionFlags:
+        """"""
+        if self.metadata.image is None:
+            raise ValueError("No image metadata available")
+        return self.metadata.image.dimensions
+
+    @property
     def channels(self) -> list[Channel]:
         """Get the list of channels in this image."""
         if self.metadata.image is None:
@@ -145,39 +159,54 @@ class MicroscopyImage:
         ]
 
     @property
+    def channel_axis(self) -> int | None:
+        """"""
+        if self.metadata.image is None:
+            raise ValueError("No image metadata available")
+        return self.metadata.image.channel_axis
+
+    @property
     def num_channels(self) -> int:
         """Get the number of channels in this image."""
         return len(self.channels)
 
-    # def get_intensities_from_channel(self, channel: Channel) -> UInt16Array:
-    #     """Extract intensity data for a specific channel.
+    def get_intensities_from_channel(self, channel: Channel) -> UInt16Array:
+        """Extract intensity data for a specific channel.
 
-    #     Returns all data for the requested channel, preserving temporal and spatial
-    #     dimensions (e.g., time-lapse or Z-stack).
+        Returns all data for the requested channel, preserving temporal and spatial
+        dimensions (e.g., time-lapse or Z-stack).
 
-    #     Args:
-    #         channel: The channel to extract, either as Channel enum or string name.
+        Args:
+            channel: The Channel object to extract.
 
-    #     Returns:
-    #         Intensity array for the specified channel. Shape depends on acquisition:
-    #         - 2D single frame: (Y, X)
-    #         - Time-lapse: (T, Y, X)
-    #         - Z-stack: (Z, Y, X)
-    #         - Multi-channel 2D: (Y, X)
-    #         - Multi-channel time-lapse/Z-stack: (T, Y, X) or (Z, Y, X)
+        Returns:
+            Intensity array for the specified channel. Shape depends on acquisition:
+            - 2D single frame: (Y, X)
+            - Time-lapse: (T, Y, X)
+            - Z-stack: (Z, Y, X)
+            - Multi-channel 2D: (Y, X)
+            - Multi-channel time-lapse/Z-stack: (T, Y, X) or (Z, Y, X)
 
-    #     Raises:
-    #         ValueError: If the specified channel is not in this image.
-    #     """
-    #     if channel not in self.channels:
-    #         raise ValueError(f"No '{channel.name}' channel in image.")
+        Raises:
+            ValueError: If the specified channel is not in this image or no metadata available.
+        """
+        if channel not in self.channels:
+            raise ValueError(
+                f"Channel '{channel.name}' not found in image. Available channels: "
+                f"{[channel.name for channel in self.channels]}"
+            )
 
-    #     # Single channel - return all data (may include T or Z dimensions)
-    #     if self.num_channels == 1:
-    #         return self.intensities.copy()
+        # Single channel - return all data (may include T or Z dimensions)
+        if self.num_channels == 1:
+            return self.intensities.copy()
 
-    #     # Multi-channel - extract the specific channel
-    #     # Assumes first axis is channel dimension for multi-channel data
-    #     # TODO: Parse metadata.image.dimensions to determine axis order
-    #     channel_index = self.channels.index(channel)
-    #     return self.intensities[channel_index, ...].copy()
+        # Multi-channel - extract the specific channel using channel_axis
+        channel_index = self.channels.index(channel)
+        if self.channel_axis is None:
+            raise ValueError("Channel axis not found in metadata")
+
+        # Build slice tuple to extract the channel
+        slices: list[slice | int] = [slice(None)] * len(self.intensities.shape)
+        slices[self.channel_axis] = channel_index
+
+        return self.intensities[tuple(slices)].copy()
