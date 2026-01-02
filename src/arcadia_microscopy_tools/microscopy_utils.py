@@ -85,7 +85,7 @@ class AcquisitionSettings(DimensionValidatorMixin):
     exposure_time_ms: float
     zoom: float | None = None
     binning: str | None = None
-    frame_interval_ms: float | None = dimension_field(DimensionFlags.TIMELAPSE)
+    frame_intervals_ms: FloatArray | None = dimension_field(DimensionFlags.TIMELAPSE)
     wavelengths_nm: FloatArray | None = dimension_field(DimensionFlags.SPECTRAL)
 
 
@@ -97,7 +97,7 @@ class MicroscopeSettings:
     numerical_aperture: float
     objective: str | None = None
     light_source: str | None = None
-    laser_power_mw: float | None = None
+    power_mw: float | None = None
 
 
 @dataclass
