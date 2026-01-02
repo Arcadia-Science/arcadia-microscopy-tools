@@ -54,7 +54,7 @@ class _NikonMetadataParser:
             sizes = dict(self._nd2f.sizes)
             channel_metadata_list = self._parse_all_channels()
 
-            return ImageMetadata(sizes=sizes, channel_metadata_list=channel_metadata_list)
+            return ImageMetadata(sizes, channel_metadata_list)
 
     def _parse_all_channels(self) -> list[ChannelMetadata]:
         """Parse metadata for all channels in the ND2 file."""
