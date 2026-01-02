@@ -23,7 +23,7 @@ class ImageMetadata:
 
     @property
     def channel_axis(self) -> int | None:
-        """"""
+        """Get the axis index for the channel dimension, or None if single channel."""
         if "C" in self.sizes:
             return next(i for i, k in enumerate(self.sizes) if k == "C")
 
@@ -115,7 +115,7 @@ class MicroscopyImage:
         lif_path: Path,
         sample_metadata: dict[str, Any] | None = None,
     ) -> MicroscopyImage:
-        """Create MicroscopyImage from a Nikon ND2 file.
+        """Create MicroscopyImage from a Leica LIF file.
 
         Args:
             lif_path: Path to the Leica LIF file.
@@ -136,14 +136,14 @@ class MicroscopyImage:
 
     @property
     def sizes(self) -> dict[str, int]:
-        """"""
+        """Get the dimension sizes dictionary (e.g., {'T': 100, 'C': 2, 'Y': 512, 'X': 512})."""
         if self.metadata.image is None:
             raise ValueError("No image metadata available")
         return self.metadata.image.sizes
 
     @property
     def dimensions(self) -> DimensionFlags:
-        """"""
+        """Get the dimension flags indicating which dimensions are present."""
         if self.metadata.image is None:
             raise ValueError("No image metadata available")
         return self.metadata.image.dimensions
@@ -160,7 +160,7 @@ class MicroscopyImage:
 
     @property
     def channel_axis(self) -> int | None:
-        """"""
+        """Get the axis index for the channel dimension, or None if single channel."""
         if self.metadata.image is None:
             raise ValueError("No image metadata available")
         return self.metadata.image.channel_axis
