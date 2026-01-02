@@ -71,7 +71,7 @@ class Metadata:
     Contains both sample-specific metadata and image acquisition metadata.
     """
 
-    image: ImageMetadata
+    image: ImageMetadata | None = None
     sample: dict[str, Any] | None = None
 
 
@@ -107,6 +107,26 @@ class MicroscopyImage:
         intensities = nd2.imread(nd2_path)
         image_metadata = ImageMetadata.from_nd2_path(nd2_path, channels)
         metadata = Metadata(image_metadata, sample_metadata)
+        return cls(intensities, metadata)
+
+    @classmethod
+    def from_lif_path(
+        cls,
+        lif_path: Path,
+        sample_metadata: dict[str, Any] | None = None,
+    ) -> MicroscopyImage:
+        """Create MicroscopyImage from a Nikon ND2 file.
+
+        Args:
+            lif_path: Path to the Leica LIF file.
+            sample_metadata: Optional dictionary containing sample-specific metadata.
+
+        Returns:
+            MicroscopyImage: A new microscopy image with intensity data and metadata.
+        """
+        intensities = liffile.imread(lif_path)
+        # TODO: create parser for LIF metadata
+        metadata = Metadata(None, sample_metadata)
         return cls(intensities, metadata)
 
     @property
