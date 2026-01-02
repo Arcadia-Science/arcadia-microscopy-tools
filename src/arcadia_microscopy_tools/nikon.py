@@ -8,14 +8,14 @@ import numpy as np
 from nd2.structures import TextInfo
 
 from .channels import Channel
-from .microscopy import ImageMetadata
-from .microscopy_utils import (
+from .metadata_structures import (
     AcquisitionSettings,
     ChannelMetadata,
     DimensionFlags,
     MicroscopeSettings,
     PhysicalDimensions,
 )
+from .microscopy import ImageMetadata
 from .typing import FloatArray
 
 

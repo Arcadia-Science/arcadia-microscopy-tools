@@ -7,7 +7,7 @@ import liffile
 import nd2
 
 from .channels import Channel
-from .microscopy_utils import ChannelMetadata, DimensionFlags
+from .metadata_structures import ChannelMetadata, DimensionFlags
 from .typing import UInt16Array
 
 
