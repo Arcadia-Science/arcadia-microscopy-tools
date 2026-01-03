@@ -17,4 +17,49 @@ pip install git+https://github.com/Arcadia-Science/arcadia-microscopy-tools.git
 
 ## Usage
 
-[DOCUMENTATION ABOUT HOW TO USE THE PACKAGE]
+### Loading microscopy images
+
+Load ND2 files from Nikon microscopes:
+
+```python
+from pathlib import Path
+from arcadia_microscopy_tools.microscopy import MicroscopyImage
+
+# Load a Nikon ND2 file
+example_nd2_path = Path("src/arcadia_microscopy_tools/tests/data/example-multichannel.nd2")
+image = MicroscopyImage.from_nd2_path(example_nd2_path)
+
+# Access basic properties
+image.shape          # Array shape: (4, 256, 256)
+image.sizes          # Dimension mapping: {'C': 4, 'Y': 256, 'X': 256}
+image.channels       # List of Channel objects: [Channel(name='BRIGHTFIELD', ...), ...]
+image.num_channels   # Number of channels: 4
+```
+
+Load LIF files from Leica microscopes:
+
+```python
+# Load a Leica LIF file
+image = MicroscopyImage.from_lif_path(Path("path/to/image.lif"))
+```
+
+### Working with channels
+
+Extract intensity data for specific channels:
+
+```python
+from arcadia_microscopy_tools.channels import DAPI
+
+# Get intensity data for a specific channel
+dapi_intensities = image.get_intensities_from_channel(DAPI)
+
+# The returned array preserves temporal/spatial dimensions
+dapi_intensities.shape  # (256, 256)
+```
+
+For more examples, see the [docs/examples](docs/examples) directory.
+
+
+## Contributing
+
+See how we recognize [feedback and contributions to our code](https://github.com/Arcadia-Science/arcadia-software-handbook/blob/main/guides-and-standards/guide--credit-for-contributions.md).
