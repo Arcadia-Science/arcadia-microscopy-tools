@@ -8,7 +8,7 @@ import numpy as np
 import skimage as ski
 from cellpose.utils import outlines_list
 
-from .microscopy import Channel
+from .channels import Channel
 from .typing import BoolArray, Int64Array, ScalarArray
 
 OutlineExtractorMethod = Literal["cellpose", "skimage"]

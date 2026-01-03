@@ -1,8 +1,9 @@
-from arcadia_microscopy_tools.mask_processing import SegmentationMask
-from arcadia_microscopy_tools.microscopy import Channel, MicroscopyImage
+from arcadia_microscopy_tools.channels import Channel
+from arcadia_microscopy_tools.microscopy import MicroscopyImage
+
+__version__ = "0.2.0"
 
 __all__ = [
     "Channel",
     "MicroscopyImage",
-    "SegmentationMask",
 ]

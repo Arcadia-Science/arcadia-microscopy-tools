@@ -55,22 +55,3 @@ def timelapse_image(valid_timelapse_nd2_path):
 def zstack_image(valid_zstack_nd2_path):
     """Create a single zstack image for testing."""
     return MicroscopyImage.from_nd2_path(valid_zstack_nd2_path)
-
-
-@pytest.fixture
-def path_list(valid_multichannel_nd2_path, valid_timelapse_nd2_path, valid_zstack_nd2_path):
-    """Create a list of file paths for testing batch operations."""
-    paths = [
-        valid_multichannel_nd2_path,
-        valid_timelapse_nd2_path,
-        valid_zstack_nd2_path,
-        valid_multichannel_nd2_path,
-        valid_timelapse_nd2_path,
-    ]
-    return paths
-
-
-@pytest.fixture
-def image_list(path_list):
-    """Create a list of MicroscopyImage instances for testing batch operations."""
-    return [MicroscopyImage.from_nd2_path(path) for path in path_list]

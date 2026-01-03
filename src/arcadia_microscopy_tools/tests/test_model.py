@@ -151,7 +151,7 @@ class TestSegmentationModel:
 
         # Create model and test data
         model = SegmentationModel(cell_diameter_px=25, flow_threshold=0.3, cellprob_threshold=-1)
-        batch_data = np.random.rand(2, 256, 256).astype(np.float32)
+        batch_data = [np.random.rand(256, 256) for _ in range(2)]
 
         # Run segmentation
         result = model.run(batch_data, batch_size=8, min_size=100)
@@ -180,10 +180,10 @@ class TestSegmentationModel:
         mock_cellpose_class.return_value = mock_model
 
         model = SegmentationModel()
-        batch_data = np.random.rand(1, 100, 100).astype(np.float32)
+        batch_data = np.random.rand(1, 100, 100)
 
         with pytest.raises(RuntimeError):
-            model.run(batch_data)
+            model.run([batch_data])
 
     @patch("arcadia_microscopy_tools.model.CellposeModel")
     def test_run_with_iterations(self, mock_cellpose_class):
@@ -194,9 +194,9 @@ class TestSegmentationModel:
         mock_cellpose_class.return_value = mock_model
 
         model = SegmentationModel(num_iterations=5)
-        batch_data = np.random.rand(1, 50, 50).astype(np.float32)
+        batch_data = np.random.rand(1, 50, 50)
 
-        model.run(batch_data)
+        model.run([batch_data])
 
         # Verify niter parameter was passed correctly
         call_args = mock_model.eval.call_args

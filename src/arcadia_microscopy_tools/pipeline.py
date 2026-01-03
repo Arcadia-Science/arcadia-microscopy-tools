@@ -12,16 +12,14 @@ class ImageOperation:
 
     Stores a method along with its args and kwargs for later execution on an image intensity array.
     Allows for convenient composition of image processing pipelines.
+
+    Args:
+        method: The image processing function to wrap.
+        *args: Positional arguments to pass to the method.
+        **kwargs: Keyword arguments to pass to the method.
     """
 
     def __init__(self, method: Callable, *args, **kwargs):
-        """Create a new image operation.
-
-        Args:
-            method: The image processing function to wrap.
-            *args: Positional arguments to pass to the method.
-            **kwargs: Keyword arguments to pass to the method.
-        """
         self.method = method
         self.args = args
         self.kwargs = kwargs
@@ -51,9 +49,27 @@ class Pipeline:
 
     Combines multiple image operations into a single callable pipeline that applies each operation
     in sequence to an input image.
+
+    Attributes:
+        operations: List of ImageOperation instances to apply in sequence.
+        copy: If True, creates a copy of the input array before processing. If False,
+            operations are applied directly to the input. Default is False for performance.
     """
 
     operations: list[ImageOperation]
+    copy: bool = False
+
+    def __post_init__(self):
+        """Validate the pipeline configuration."""
+        if not self.operations:
+            raise ValueError("Pipeline must have at least one operation")
+
+    def _apply_operations(self, intensities: ScalarArray) -> ScalarArray:
+        """Apply all operations to an image array."""
+        out = intensities.copy() if self.copy else intensities
+        for operation in self.operations:
+            out = operation(out)
+        return out
 
     def __call__(self, intensities: ScalarArray) -> ScalarArray:
         """Apply the pipeline to an image.
@@ -64,10 +80,17 @@ class Pipeline:
         Returns:
             ScalarArray: The processed image intensity array after applying all operations.
         """
-        out = intensities.copy()
-        for operation in self.operations:
-            out = operation(out)
-        return out
+        return self._apply_operations(intensities)
+
+    def __len__(self) -> int:
+        """Return the number of operations in the pipeline."""
+        return len(self.operations)
+
+    def __repr__(self) -> str:
+        """Create a string representation of the pipeline."""
+        operations_repr = ", ".join(repr(operation) for operation in self.operations)
+        copy_str = ", copy=True" if self.copy else ""
+        return f"Pipeline([{operations_repr}]{copy_str})"
 
 
 @dataclass
@@ -80,10 +103,35 @@ class PipelineParallelized:
 
     Useful for timelapse data, z-stacks, multi-channel images, or any multi-dimensional
     image data where processing can be parallelized across the first axis.
+
+    Attributes:
+        operations: List of ImageOperation instances to apply in sequence.
+        max_workers: Maximum number of worker threads for parallel processing. If None,
+            ThreadPoolExecutor will use its default (typically number of CPU cores).
+        copy: If True, creates a copy of each frame before processing. If False,
+            operations are applied directly to each frame. Default is False for performance.
+
+    Note:
+        Uses thread-based parallelism, which is most effective for operations that release
+        the GIL (like numpy operations). Pure Python operations may not benefit from
+        parallelization due to the Global Interpreter Lock.
     """
 
     operations: list[ImageOperation]
     max_workers: int | None = None
+    copy: bool = False
+
+    def __post_init__(self):
+        """Validate the pipeline configuration."""
+        if not self.operations:
+            raise ValueError("Pipeline must have at least one operation")
+
+    def _apply_operations(self, intensities: ScalarArray) -> ScalarArray:
+        """Apply all operations to an image array."""
+        out = intensities.copy() if self.copy else intensities
+        for operation in self.operations:
+            out = operation(out)
+        return out
 
     def __call__(self, intensities: ScalarArray) -> ScalarArray:
         """Apply the pipeline to all frames/slices in parallel.
@@ -94,15 +142,22 @@ class PipelineParallelized:
         Returns:
             ScalarArray: The processed image intensity array after applying all operations.
         """
-
-        def process_frame(frame: ScalarArray) -> ScalarArray:
-            """Apply all operations to a single frame."""
-            out = frame.copy()
-            for operation in self.operations:
-                out = operation(out)
-            return out
-
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            processed = list(executor.map(process_frame, intensities))
+            processed = list(executor.map(self._apply_operations, intensities))
 
-        return np.array(processed, dtype=float)
+        return np.array(processed, dtype=intensities.dtype)  # type: ignore
+
+    def __len__(self) -> int:
+        """Return the number of operations in the pipeline."""
+        return len(self.operations)
+
+    def __repr__(self) -> str:
+        """Create a string representation of the pipeline."""
+        operations_repr = ", ".join(repr(operation) for operation in self.operations)
+        params = []
+        if self.max_workers is not None:
+            params.append(f"max_workers={self.max_workers}")
+        if self.copy:
+            params.append("copy=True")
+        params_str = f", {', '.join(params)}" if params else ""
+        return f"PipelineParallelized([{operations_repr}]{params_str})"
