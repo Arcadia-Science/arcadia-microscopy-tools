@@ -68,4 +68,4 @@ no-lines-before = ["future", "standard-library"]
 
 [tool.pyright]
 include = ["src"]
-exclude = ["build", "dist"]
+exclude = ["build", "dist", ".venv", "**/__pycache__"]
