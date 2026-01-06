@@ -119,8 +119,8 @@ class MicroscopyImage:
         if len(flat) <= 10:
             intensity_str = f"intensities={list(flat)}"
         else:
-            first_vals = flat[:5].tolist()
-            last_vals = flat[-2:].tolist()
+            first_vals = flat[:3].tolist()
+            last_vals = flat[-3:].tolist()
             intensity_str = (
                 f"intensities=[{', '.join(map(str, first_vals))}, ..., "
                 f"{', '.join(map(str, last_vals))}]"
