@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ImageMetadata` now contains `sizes` dict and `channel_metadata_list`
   - Added `dimensions` property to derive `DimensionFlags` from all channels
 - Changed `Channel` from Enum to dataclass with registration system
-  - Now supports custom channels via `Channel.from_wavelength()` and `Channel.from_optical_config_name()`
+  - Now supports custom channels via `Channel.from_emission_wavelength()`, `Channel.from_excitation_wavelength()`, and `Channel.from_optical_config_name()`
 - Renamed `frame_interval_ms` to `frame_intervals_ms` (now a numpy array of intervals)
 - Removed `MULTICHANNEL` flag from individual channel dimensions (now only at image level)
 
