@@ -47,7 +47,7 @@ def channel_to_opaque_colormap(channel: Channel) -> LinearSegmentedColormap:
         ValueError: If the channel has no color defined.
     """
     if channel.color is None:
-        raise ValueError(f"Channel {channel.name} has no color")
+        raise ValueError(f"Channel '{channel.name}' has no color")
     return create_opaque_colormap(color=channel.color, name=channel.name)
 
 
@@ -64,5 +64,5 @@ def channel_to_semitransparent_colormap(channel: Channel) -> LinearSegmentedColo
         ValueError: If the channel has no color defined.
     """
     if channel.color is None:
-        raise ValueError(f"Channel {channel.name} has no color")
+        raise ValueError(f"Channel '{channel.name}' has no color")
     return create_semitransparent_colormap(color=channel.color, name=channel.name)
