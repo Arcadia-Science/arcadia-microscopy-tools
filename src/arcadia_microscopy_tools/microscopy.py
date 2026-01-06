@@ -9,7 +9,8 @@ import nd2
 
 from .channels import Channel
 from .metadata_structures import ChannelMetadata, DimensionFlags
-from .typing import UInt16Array
+from .pipeline import Pipeline, PipelineParallelized
+from .typing import ScalarArray, UInt16Array
 
 
 @dataclass
@@ -265,3 +266,29 @@ class MicroscopyImage:
         slices[self.channel_axis] = channel_index
 
         return self.intensities[tuple(slices)].copy()
+
+    def apply_pipeline(
+        self,
+        pipeline: Pipeline | PipelineParallelized,
+        channel: Channel,
+    ) -> ScalarArray:
+        """Apply a processing pipeline to intensity data from a specific channel.
+
+        Extracts the intensity data for the specified channel and processes it
+        through the provided pipeline. Supports both standard and parallelized pipelines.
+
+        Args:
+            pipeline: The processing pipeline to apply. Can be either a Pipeline or
+                PipelineParallelized instance containing the sequence of transformations.
+            channel: The Channel object whose intensity data should be processed.
+
+        Returns:
+            Processed intensity data as a scalar array. The shape and dtype depend on
+            the specific transformations in the pipeline.
+
+        Raises:
+            ValueError: If the specified channel is not found in this image or if no
+                image metadata is available.
+        """
+        intensities = self.get_intensities_from_channel(channel)
+        return pipeline(intensities)
