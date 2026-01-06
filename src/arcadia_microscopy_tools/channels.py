@@ -187,7 +187,7 @@ CY5 = Channel.register(
     Channel(name="CY5", excitation_nm=640, emission_nm=665, color=HexCode("cy5", "#a30000"))
 )
 CARS = Channel.register(
-    Channel(name="CARS", color=HexCode("cars", "#5d050c")),
+    Channel(name="CARS", color=HexCode("cars", "#AB1299")),
 )
 SRS = Channel.register(
     Channel(name="SRS", color=HexCode("srs", "#e63535")),
