@@ -11,6 +11,9 @@ from .typing import FloatArray
 
 logger = logging.getLogger(__name__)
 
+# Sentinel value to distinguish "not provided" from "explicitly None"
+_UNSET = object()
+
 
 @dataclass
 class SegmentationModel:
@@ -56,22 +59,42 @@ class SegmentationModel:
 
     def __post_init__(self):
         """Validate default parameters and set device."""
-        if self.default_cell_diameter_px <= 0:
-            raise ValueError(
-                f"Default cell diameter [px] must be positive, got {self.default_cell_diameter_px}"
-            )
-        if self.default_flow_threshold < 0:
-            raise ValueError(
-                f"Default flow threshold must be non-negative, got {self.default_flow_threshold}"
-            )
-        if not (-10 <= self.default_cellprob_threshold <= 10):
-            raise ValueError(
-                f"Default cell probability threshold must be between -10 and 10, "
-                f"got {self.default_cellprob_threshold}"
-            )
+        self._validate_parameters(
+            self.default_cell_diameter_px,
+            self.default_flow_threshold,
+            self.default_cellprob_threshold,
+        )
 
         if self.device is None:
             self.device = self.find_best_available_device()
+
+    @staticmethod
+    def _validate_parameters(
+        cell_diameter_px: float,
+        flow_threshold: float,
+        cellprob_threshold: float,
+    ) -> None:
+        """Validate segmentation parameters.
+
+        Args:
+            cell_diameter_px: Expected cell diameter in pixels.
+            flow_threshold: Flow error threshold for mask generation.
+            cellprob_threshold: Cell probability threshold for mask generation.
+
+        Raises:
+            ValueError: If any parameter is out of valid range.
+        """
+        if cell_diameter_px <= 0:
+            raise ValueError(
+                f"Cell diameter [px] must be positive, got {cell_diameter_px}"
+            )
+        if flow_threshold < 0:
+            raise ValueError(f"Flow threshold must be non-negative, got {flow_threshold}")
+        if not (-10 <= cellprob_threshold <= 10):
+            raise ValueError(
+                f"Cell probability threshold must be between -10 and 10, "
+                f"got {cellprob_threshold}"
+            )
 
     @property
     def cellpose_model(self) -> CellposeModel:
@@ -87,11 +110,11 @@ class SegmentationModel:
     def segment(
         self,
         intensities: FloatArray,
-        cell_diameter_px: float | None = None,
-        flow_threshold: float | None = None,
-        cellprob_threshold: float | None = None,
-        num_iterations: int | None = None,
-        batch_size: int | None = None,
+        cell_diameter_px: float | None | object = _UNSET,
+        flow_threshold: float | None | object = _UNSET,
+        cellprob_threshold: float | None | object = _UNSET,
+        num_iterations: int | None | object = _UNSET,
+        batch_size: int | None | object = _UNSET,
         **cellpose_kwargs: Any,
     ) -> SegmentationMask:
         """Run cell segmentation using Cellpose.
@@ -100,17 +123,18 @@ class SegmentationModel:
             intensities: Input image intensities with shape ([channel], height, width)
                 where the channel dimension is optional. Intensity values should be normalized
                 floats, typically in range [0, 1].
-            cell_diameter_px: Expected cell diameter in pixels. If None, uses the default
-                value set during model initialization.
+            cell_diameter_px: Expected cell diameter in pixels. If not provided, uses the
+                default value set during model initialization.
             flow_threshold: Flow error threshold for mask generation. Higher values result
-                in fewer masks. Must be >= 0. If None, uses the default value.
+                in fewer masks. Must be >= 0. If not provided, uses the default value.
             cellprob_threshold: Cell probability threshold for mask generation. Higher values
                 result in fewer and more confident masks. Must be between -10 and 10.
-                If None, uses the default value.
-            num_iterations: Number of iterations for segmentation algorithm. If None, uses
-                the default value (which may itself be None, triggering Cellpose's internal default).
+                If not provided, uses the default value.
+            num_iterations: Number of iterations for segmentation algorithm. If not provided,
+                uses the default value (which may itself be None, triggering Cellpose's internal
+                default). Can explicitly pass None to use Cellpose's internal default.
             batch_size: Number of 256x256 patches to run simultaneously on the GPU.
-                Can be adjusted based on GPU memory. If None, uses the default value.
+                Can be adjusted based on GPU memory. If not provided, uses the default value.
             **cellpose_kwargs: Additional keyword arguments passed to CellposeModel.eval().
                 Common options include 'min_size' (minimum cell size in pixels).
 
@@ -133,25 +157,17 @@ class SegmentationModel:
               discussions/benchmarks.
         """
         # Use method parameters if provided, otherwise fall back to defaults
-        diameter = (
-            cell_diameter_px if cell_diameter_px is not None else self.default_cell_diameter_px
-        )
-        flow_thresh = flow_threshold if flow_threshold is not None else self.default_flow_threshold
+        diameter = self.default_cell_diameter_px if cell_diameter_px is _UNSET else cell_diameter_px
+        flow_thresh = self.default_flow_threshold if flow_threshold is _UNSET else flow_threshold
         cellprob_thresh = (
-            cellprob_threshold if cellprob_threshold is not None else self.default_cellprob_threshold
+            self.default_cellprob_threshold if cellprob_threshold is _UNSET else cellprob_threshold
         )
-        niter = num_iterations if num_iterations is not None else self.default_num_iterations
-        bsize = batch_size if batch_size is not None else self.default_batch_size
+        niter = self.default_num_iterations if num_iterations is _UNSET else num_iterations
+        bsize = self.default_batch_size if batch_size is _UNSET else batch_size
 
-        # Validate parameters
-        if diameter <= 0:
-            raise ValueError(f"Cell diameter [px] must be positive, got {diameter}")
-        if flow_thresh < 0:
-            raise ValueError(f"Flow threshold must be non-negative, got {flow_thresh}")
-        if not (-10 <= cellprob_thresh <= 10):
-            raise ValueError(
-                f"Cell probability threshold must be between -10 and 10, got {cellprob_thresh}"
-            )
+        # Validate parameters (skip validation if explicitly set to None)
+        if diameter is not None and flow_thresh is not None and cellprob_thresh is not None:
+            self._validate_parameters(diameter, flow_thresh, cellprob_thresh)
 
         try:
             masks_uint16, *_ = self.cellpose_model.eval(
