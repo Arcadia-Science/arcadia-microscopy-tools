@@ -19,29 +19,30 @@ class SegmentationModel:
     providing a simplified interface for batch processing of microscopy images.
 
     Attributes:
-        cell_diameter_px: Expected cell diameter in pixels. Used as `diameter` parameter
-            for Cellpose evaluation. Default is 30 pixels.
+        cell_diameter_px: Expected cell diameter in pixels.
         flow_threshold: Flow error threshold for mask generation. Higher values result
             in fewer masks. Must be >= 0. Default is 0.4.
         cellprob_threshold: Cell probability threshold for mask generation. Higher values
             result in fewer and more confident masks. Must be between -10 and 10. Default is 0.
         num_iterations: Number of iterations for segmentation algorithm. If None, uses
-            Cellpose default. Default is None.
+            Cellpose default.
         device: PyTorch device for model computation. If None, automatically selects
             the best available device (CUDA > MPS > CPU).
 
     Notes:
-        - Channels are no longer an input in Cellpose v4.x (Cellpose-SAM). The model will use the
-          first 3 channels of the input image and truncate the rest. It is also (allegedly)
-          channel-invariant -- order of channels in the image shouldn't matter.
-        - Cellpose-SAM has been trained on images with ROI diameters from size 7.5 to 120, with a
-          mean diameter of 30 pixels, such that it should be fairly robust to different cell sizes.
-
-    See also:
-        - https://cellpose.readthedocs.io/en/latest/settings.html#settings
+        - Cellpose-SAM uses the first 3 channels of input images and is channel-order invariant.
+        - Trained on ROI diameters 7.5-120px (mean 30px). Specifying diameter is optional but
+          can improve speed for large cells via downsampling (e.g., diameter=90 downsamples 3x).
+        - Network outputs X/Y flows and cell probability (range ≈ -6 to +6). Pixels above
+          cellprob_threshold are used for ROI detection. Decrease threshold for more ROIs,
+          increase to reduce false positives from dim regions.
+        - Flows simulate pixel dynamics over num_iterations iterations. Pixels converging to the
+          same position form one ROI. Default num_iterations is proportional to diameter; longer
+          ROIs may need more iterations (e.g., num_iterations=2000).
+        - See https://cellpose.readthedocs.io/en/latest/settings.html#settings for more details.
     """
 
-    cell_diameter_px: int = 30
+    cell_diameter_px: float = 30
     flow_threshold: float = 0.4
     cellprob_threshold: float = 0
     num_iterations: int | None = None
