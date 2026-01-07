@@ -11,9 +11,6 @@ from .typing import FloatArray
 
 logger = logging.getLogger(__name__)
 
-# Sentinel value to distinguish "not provided" from "explicitly None"
-_UNSET = object()
-
 
 @dataclass
 class SegmentationModel:
@@ -46,6 +43,11 @@ class SegmentationModel:
         - Flows simulate pixel dynamics over num_iterations iterations. Pixels converging to the
           same position form one ROI. Default num_iterations is proportional to diameter; longer
           ROIs may need more iterations (e.g., num_iterations=2000).
+        - Cellpose can scale well on CUDA GPUs with large batches, the benchmarks show speed
+          improvements with batch sizes up to 32. But Apple's PyTorch MPS backend isn't as
+          optimized for deep CNN inference throughput, so increasing batch size quickly hits
+          bandwidth/kernel-scheduling limits and stops helping. This is a known theme in MPS
+          discussions/benchmarks.
         - See https://cellpose.readthedocs.io/en/latest/settings.html#settings for more details.
     """
 
@@ -85,104 +87,13 @@ class SegmentationModel:
             ValueError: If any parameter is out of valid range.
         """
         if cell_diameter_px <= 0:
-            raise ValueError(
-                f"Cell diameter [px] must be positive, got {cell_diameter_px}"
-            )
+            raise ValueError(f"Cell diameter [px] must be positive, got {cell_diameter_px}")
         if flow_threshold < 0:
             raise ValueError(f"Flow threshold must be non-negative, got {flow_threshold}")
         if not (-10 <= cellprob_threshold <= 10):
             raise ValueError(
-                f"Cell probability threshold must be between -10 and 10, "
-                f"got {cellprob_threshold}"
+                f"Cell probability threshold must be between -10 and 10, got {cellprob_threshold}"
             )
-
-    @property
-    def cellpose_model(self) -> CellposeModel:
-        """Lazy-load and cache the Cellpose model."""
-        if self._model is None:
-            logger.info(f"Loading Cellpose-SAM model on {self.device}")
-            try:
-                self._model = CellposeModel(device=self.device)
-            except Exception as e:
-                raise RuntimeError(f"Failed to load Cellpose model: {e}") from e
-        return self._model
-
-    def segment(
-        self,
-        intensities: FloatArray,
-        cell_diameter_px: float | None | object = _UNSET,
-        flow_threshold: float | None | object = _UNSET,
-        cellprob_threshold: float | None | object = _UNSET,
-        num_iterations: int | None | object = _UNSET,
-        batch_size: int | None | object = _UNSET,
-        **cellpose_kwargs: Any,
-    ) -> SegmentationMask:
-        """Run cell segmentation using Cellpose.
-
-        Args:
-            intensities: Input image intensities with shape ([channel], height, width)
-                where the channel dimension is optional. Intensity values should be normalized
-                floats, typically in range [0, 1].
-            cell_diameter_px: Expected cell diameter in pixels. If not provided, uses the
-                default value set during model initialization.
-            flow_threshold: Flow error threshold for mask generation. Higher values result
-                in fewer masks. Must be >= 0. If not provided, uses the default value.
-            cellprob_threshold: Cell probability threshold for mask generation. Higher values
-                result in fewer and more confident masks. Must be between -10 and 10.
-                If not provided, uses the default value.
-            num_iterations: Number of iterations for segmentation algorithm. If not provided,
-                uses the default value (which may itself be None, triggering Cellpose's internal
-                default). Can explicitly pass None to use Cellpose's internal default.
-            batch_size: Number of 256x256 patches to run simultaneously on the GPU.
-                Can be adjusted based on GPU memory. If not provided, uses the default value.
-            **cellpose_kwargs: Additional keyword arguments passed to CellposeModel.eval().
-                Common options include 'min_size' (minimum cell size in pixels).
-
-        Returns:
-            SegmentationMask: Container with the segmentation mask and feature extraction methods.
-
-        Raises:
-            ValueError: If parameters are out of valid ranges.
-            RuntimeError: If the Cellpose model fails during segmentation.
-
-        See also:
-            - For full list of optional cellpose_kwargs, see:
-              https://cellpose.readthedocs.io/en/latest/api.html#id0
-
-        Notes:
-            - Cellpose can scale well on CUDA GPUs with large batches, the benchmarks show speed
-              improvements with batch sizes up to 32. But Apple's PyTorch MPS backend isn't as
-              optimized for deep CNN inference throughput, so increasing batch size quickly hits
-              bandwidth/kernel-scheduling limits and stops helping. This is a known theme in MPS
-              discussions/benchmarks.
-        """
-        # Use method parameters if provided, otherwise fall back to defaults
-        diameter = self.default_cell_diameter_px if cell_diameter_px is _UNSET else cell_diameter_px
-        flow_thresh = self.default_flow_threshold if flow_threshold is _UNSET else flow_threshold
-        cellprob_thresh = (
-            self.default_cellprob_threshold if cellprob_threshold is _UNSET else cellprob_threshold
-        )
-        niter = self.default_num_iterations if num_iterations is _UNSET else num_iterations
-        bsize = self.default_batch_size if batch_size is _UNSET else batch_size
-
-        # Validate parameters (skip validation if explicitly set to None)
-        if diameter is not None and flow_thresh is not None and cellprob_thresh is not None:
-            self._validate_parameters(diameter, flow_thresh, cellprob_thresh)
-
-        try:
-            masks_uint16, *_ = self.cellpose_model.eval(
-                x=intensities,
-                batch_size=bsize,
-                diameter=diameter,
-                flow_threshold=flow_thresh,
-                cellprob_threshold=cellprob_thresh,
-                niter=niter,
-                **cellpose_kwargs,
-            )
-        except Exception as e:
-            raise RuntimeError(f"Cellpose segmentation failed: {e}") from e
-
-        return SegmentationMask(masks_uint16)
 
     @staticmethod
     def find_best_available_device() -> torch.device:
@@ -209,3 +120,93 @@ class SegmentationModel:
             cpu_count = torch.get_num_threads()
             logger.info(f"No GPU acceleration available. Using CPU with {cpu_count} threads.")
         return device
+
+    @property
+    def cellpose_model(self) -> CellposeModel:
+        """Lazy-load and cache the Cellpose model."""
+        if self._model is None:
+            logger.info(f"Loading Cellpose-SAM model on {self.device}")
+            try:
+                self._model = CellposeModel(device=self.device)
+            except Exception as e:
+                raise RuntimeError(f"Failed to load Cellpose model: {e}") from e
+        return self._model
+
+    def segment(
+        self,
+        intensities: FloatArray,
+        cell_diameter_px: float | None = None,
+        flow_threshold: float | None = None,
+        cellprob_threshold: float | None = None,
+        num_iterations: int | None = None,
+        batch_size: int | None = None,
+        **cellpose_kwargs: Any,
+    ) -> SegmentationMask:
+        """Run cell segmentation using Cellpose.
+
+        Args:
+            intensities: Input image intensities with shape ([channel], height, width)
+                where the channel dimension is optional. Intensity values should be normalized
+                floats, typically in range [0, 1].
+            cell_diameter_px: Expected cell diameter in pixels. If None, uses the default
+                value set during model initialization.
+            flow_threshold: Flow error threshold for mask generation. Higher values result
+                in fewer masks. Must be >= 0. If None, uses the default value.
+            cellprob_threshold: Cell probability threshold for mask generation. Higher values
+                result in fewer and more confident masks. Must be between -10 and 10.
+                If None, uses the default value.
+            num_iterations: Number of iterations for segmentation algorithm. If None, uses
+                the default value (which may itself be None, triggering Cellpose's internal default).
+            batch_size: Number of 256x256 patches to run simultaneously on the GPU.
+                Can be adjusted based on GPU memory. If None, uses the default value.
+            **cellpose_kwargs: Additional keyword arguments passed to CellposeModel.eval().
+                Common options include 'min_size' (minimum cell size in pixels).
+
+        Returns:
+            SegmentationMask: Container with the segmentation mask and feature extraction methods.
+
+        Raises:
+            ValueError: If parameters are out of valid ranges.
+            RuntimeError: If the Cellpose model fails during segmentation.
+
+        See also:
+            - For full list of optional cellpose_kwargs, see:
+              https://cellpose.readthedocs.io/en/latest/api.html#id0
+
+        Notes:
+            - Cellpose can scale well on CUDA GPUs with large batches, the benchmarks show speed
+              improvements with batch sizes up to 32. But Apple's PyTorch MPS backend isn't as
+              optimized for deep CNN inference throughput, so increasing batch size quickly hits
+              bandwidth/kernel-scheduling limits and stops helping. This is a known theme in MPS
+              discussions/benchmarks.
+        """
+        # Use method parameters if provided, otherwise fall back to defaults
+        diameter = (
+            cell_diameter_px if cell_diameter_px is not None else self.default_cell_diameter_px
+        )
+        flow_thresh = flow_threshold if flow_threshold is not None else self.default_flow_threshold
+        cellprob_thresh = (
+            cellprob_threshold
+            if cellprob_threshold is not None
+            else self.default_cellprob_threshold
+        )
+        niter = num_iterations if num_iterations is not None else self.default_num_iterations
+        bsize = batch_size if batch_size is not None else self.default_batch_size
+
+        # Validate parameters
+        self._validate_parameters(diameter, flow_thresh, cellprob_thresh)
+
+        try:
+            masks_uint16, *_ = self.cellpose_model.eval(
+                x=intensities,
+                batch_size=bsize,
+                diameter=diameter,
+                flow_threshold=flow_thresh,
+                cellprob_threshold=cellprob_thresh,
+                niter=niter,
+                **cellpose_kwargs,
+            )
+        except Exception as e:
+            raise RuntimeError(f"Cellpose segmentation failed: {e}") from e
+
+        return SegmentationMask(masks_uint16)
