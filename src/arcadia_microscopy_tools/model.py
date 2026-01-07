@@ -70,17 +70,11 @@ class SegmentationModel:
     _model: CellposeModel | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
-        """Validate default parameters and set device."""
-        self._validate_parameters(
-            self.default_cell_diameter_px,
-            self.default_flow_threshold,
-            self.default_cellprob_threshold,
-        )
-
+        """Set device if not provided."""
         if self.device is None:
             self.device = self.find_best_available_device()
 
-    def _resolve_parameters(
+    def _resolve_and_validate_parameters(
         self,
         cell_diameter_px: float | None,
         flow_threshold: float | None,
@@ -88,12 +82,22 @@ class SegmentationModel:
         num_iterations: int | None,
         batch_size: int | None,
     ) -> CellposeParams:
-        """Resolve parameters by using provided values or falling back to defaults.
+        """Resolve parameters from provided values or defaults, then validate.
+
+        Args:
+            cell_diameter_px: Expected cell diameter in pixels, or None for default.
+            flow_threshold: Flow error threshold, or None for default.
+            cellprob_threshold: Cell probability threshold, or None for default.
+            num_iterations: Number of iterations, or None for default.
+            batch_size: GPU batch size, or None for default.
 
         Returns:
-            Dictionary with keys matching CellposeModel.eval() parameter names.
+            Dictionary with resolved and validated parameters.
+
+        Raises:
+            ValueError: If any parameter is out of valid range.
         """
-        return {
+        cellpose_params: CellposeParams = {
             "diameter": cell_diameter_px
             if cell_diameter_px is not None
             else self.default_cell_diameter_px,
@@ -107,30 +111,22 @@ class SegmentationModel:
             "batch_size": batch_size if batch_size is not None else self.default_batch_size,
         }
 
-    @staticmethod
-    def _validate_parameters(
-        cell_diameter_px: float,
-        flow_threshold: float,
-        cellprob_threshold: float,
-    ) -> None:
-        """Validate segmentation parameters.
-
-        Args:
-            cell_diameter_px: Expected cell diameter in pixels.
-            flow_threshold: Flow error threshold for mask generation.
-            cellprob_threshold: Cell probability threshold for mask generation.
-
-        Raises:
-            ValueError: If any parameter is out of valid range.
-        """
-        if cell_diameter_px <= 0:
-            raise ValueError(f"Cell diameter [px] must be positive, got {cell_diameter_px}")
-        if flow_threshold < 0:
-            raise ValueError(f"Flow threshold must be non-negative, got {flow_threshold}")
-        if not (-10 <= cellprob_threshold <= 10):
+        # Validate resolved parameters
+        if cellpose_params["diameter"] <= 0:
             raise ValueError(
-                f"Cell probability threshold must be between -10 and 10, got {cellprob_threshold}"
+                f"Cell diameter [px] must be positive, got {cellpose_params['diameter']}"
             )
+        if cellpose_params["flow_threshold"] < 0:
+            raise ValueError(
+                f"Flow threshold must be non-negative, got {cellpose_params['flow_threshold']}"
+            )
+        if not (-10 <= cellpose_params["cellprob_threshold"] <= 10):
+            raise ValueError(
+                "Cell probability threshold must be between -10 and 10, got "
+                f"{cellpose_params['cellprob_threshold']}"
+            )
+
+        return cellpose_params
 
     @staticmethod
     def find_best_available_device() -> torch.device:
@@ -172,14 +168,14 @@ class SegmentationModel:
     def _segment_with_params(
         self,
         intensities: FloatArray,
-        params: CellposeParams,
+        cellpose_params: CellposeParams,
         **cellpose_kwargs: Any,
     ) -> Int64Array:
         """Core segmentation logic with pre-resolved parameters.
 
         Args:
             intensities: Input image intensities with shape ([channel], height, width).
-            params: Resolved and validated cellpose parameters.
+            cellpose_params: Resolved and validated cellpose parameters.
             **cellpose_kwargs: Additional arguments passed to CellposeModel.eval().
 
         Returns:
@@ -189,7 +185,7 @@ class SegmentationModel:
             RuntimeError: If the Cellpose model fails during segmentation.
         """
         try:
-            mask, *_ = self.cellpose_model.eval(x=intensities, **params, **cellpose_kwargs)
+            mask, *_ = self.cellpose_model.eval(x=intensities, **cellpose_params, **cellpose_kwargs)
         except Exception as e:
             raise RuntimeError(f"Cellpose segmentation failed: {e}") from e
 
@@ -230,15 +226,10 @@ class SegmentationModel:
             ValueError: If parameters are out of valid ranges.
             RuntimeError: If the Cellpose model fails during segmentation.
         """
-        # Resolve and validate parameters
-        params = self._resolve_parameters(
+        cellpose_params = self._resolve_and_validate_parameters(
             cell_diameter_px, flow_threshold, cellprob_threshold, num_iterations, batch_size
         )
-        self._validate_parameters(
-            params["diameter"], params["flow_threshold"], params["cellprob_threshold"]
-        )
-
-        return self._segment_with_params(intensities, params, **cellpose_kwargs)
+        return self._segment_with_params(intensities, cellpose_params, **cellpose_kwargs)
 
     def batch_segment(
         self,
@@ -282,20 +273,16 @@ class SegmentationModel:
             If segmentation fails for an image, the error is logged and None is returned
             for that image, but processing continues for remaining images.
         """
-        # Resolve and validate parameters once for all images
-        params = self._resolve_parameters(
+        cellpose_params = self._resolve_and_validate_parameters(
             cell_diameter_px, flow_threshold, cellprob_threshold, num_iterations, batch_size
         )
-        self._validate_parameters(
-            params["diameter"], params["flow_threshold"], params["cellprob_threshold"]
-        )
 
-        # Process each image
         masks = []
         for i, intensities in enumerate(intensities_list):
             try:
-                mask = self._segment_with_params(intensities, params, **cellpose_kwargs)
-                masks.append(mask)
+                masks.append(
+                    self._segment_with_params(intensities, cellpose_params, **cellpose_kwargs)
+                )
             except RuntimeError as e:
                 logger.error(f"Cellpose segmentation failed on image {i}: {e}")
                 masks.append(None)
