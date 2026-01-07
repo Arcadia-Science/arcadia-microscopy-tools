@@ -165,32 +165,6 @@ class SegmentationModel:
                 raise RuntimeError(f"Failed to load Cellpose model: {e}") from e
         return self._model
 
-    def _segment_with_params(
-        self,
-        intensities: FloatArray,
-        cellpose_params: CellposeParams,
-        **cellpose_kwargs: Any,
-    ) -> Int64Array:
-        """Core segmentation logic with pre-resolved parameters.
-
-        Args:
-            intensities: Input image intensities with shape ([channel], height, width).
-            cellpose_params: Resolved and validated cellpose parameters.
-            **cellpose_kwargs: Additional arguments passed to CellposeModel.eval().
-
-        Returns:
-            Segmentation mask as Int64Array.
-
-        Raises:
-            RuntimeError: If the Cellpose model fails during segmentation.
-        """
-        try:
-            mask, *_ = self.cellpose_model.eval(x=intensities, **cellpose_params, **cellpose_kwargs)
-        except Exception as e:
-            raise RuntimeError(f"Cellpose segmentation failed: {e}") from e
-
-        return mask.astype(np.int64)
-
     def segment(
         self,
         intensities: FloatArray,
@@ -229,7 +203,13 @@ class SegmentationModel:
         cellpose_params = self._resolve_and_validate_parameters(
             cell_diameter_px, flow_threshold, cellprob_threshold, num_iterations, batch_size
         )
-        return self._segment_with_params(intensities, cellpose_params, **cellpose_kwargs)
+
+        try:
+            mask, *_ = self.cellpose_model.eval(x=intensities, **cellpose_params, **cellpose_kwargs)
+        except Exception as e:
+            raise RuntimeError(f"Cellpose segmentation failed: {e}") from e
+
+        return mask.astype(np.int64)
 
     def batch_segment(
         self,
@@ -280,10 +260,11 @@ class SegmentationModel:
         masks = []
         for i, intensities in enumerate(intensities_list):
             try:
-                masks.append(
-                    self._segment_with_params(intensities, cellpose_params, **cellpose_kwargs)
+                mask, *_ = self.cellpose_model.eval(
+                    x=intensities, **cellpose_params, **cellpose_kwargs
                 )
-            except RuntimeError as e:
+                masks.append(mask.astype(np.int64))
+            except Exception as e:
                 logger.error(f"Cellpose segmentation failed on image {i}: {e}")
                 masks.append(None)
 
