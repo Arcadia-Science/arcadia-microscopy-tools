@@ -142,7 +142,7 @@ class SegmentationModel:
         batch_size: int | None = None,
         **cellpose_kwargs: Any,
     ) -> SegmentationMask:
-        """Run cell segmentation using Cellpose.
+        """Run cell segmentation using Cellpose-SAM.
 
         Args:
             intensities: Input image intensities with shape ([channel], height, width)
@@ -172,38 +172,35 @@ class SegmentationModel:
         See also:
             - For full list of optional cellpose_kwargs, see:
               https://cellpose.readthedocs.io/en/latest/api.html#id0
-
-        Notes:
-            - Cellpose can scale well on CUDA GPUs with large batches, the benchmarks show speed
-              improvements with batch sizes up to 32. But Apple's PyTorch MPS backend isn't as
-              optimized for deep CNN inference throughput, so increasing batch size quickly hits
-              bandwidth/kernel-scheduling limits and stops helping. This is a known theme in MPS
-              discussions/benchmarks.
         """
         # Use method parameters if provided, otherwise fall back to defaults
-        diameter = (
+        cell_diameter_px = (
             cell_diameter_px if cell_diameter_px is not None else self.default_cell_diameter_px
         )
-        flow_thresh = flow_threshold if flow_threshold is not None else self.default_flow_threshold
-        cellprob_thresh = (
+        flow_threshold = (
+            flow_threshold if flow_threshold is not None else self.default_flow_threshold
+        )
+        cellprob_threshold = (
             cellprob_threshold
             if cellprob_threshold is not None
             else self.default_cellprob_threshold
         )
-        niter = num_iterations if num_iterations is not None else self.default_num_iterations
-        bsize = batch_size if batch_size is not None else self.default_batch_size
+        num_iterations = (
+            num_iterations if num_iterations is not None else self.default_num_iterations
+        )
+        batch_size = batch_size if batch_size is not None else self.default_batch_size
 
         # Validate parameters
-        self._validate_parameters(diameter, flow_thresh, cellprob_thresh)
+        self._validate_parameters(cell_diameter_px, flow_threshold, cellprob_threshold)
 
         try:
             masks_uint16, *_ = self.cellpose_model.eval(
                 x=intensities,
-                batch_size=bsize,
-                diameter=diameter,
-                flow_threshold=flow_thresh,
-                cellprob_threshold=cellprob_thresh,
-                niter=niter,
+                batch_size=batch_size,
+                diameter=cell_diameter_px,
+                flow_threshold=flow_threshold,
+                cellprob_threshold=cellprob_threshold,
+                niter=num_iterations,
                 **cellpose_kwargs,
             )
         except Exception as e:
