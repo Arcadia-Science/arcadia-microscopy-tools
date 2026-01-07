@@ -76,31 +76,6 @@ class SegmentationModel:
                 raise RuntimeError(f"Failed to load Cellpose model: {e}") from e
         return self._model
 
-    def find_best_available_device(self) -> torch.device:
-        """Get appropriate compute device (CUDA GPU, Apple Metal, or CPU).
-
-        Determines the best available device for running the segmentation model:
-            1. CUDA GPU if available (NVIDIA GPUs)
-            2. MPS (Metal Performance Shaders) if available (Apple Silicon/AMD GPUs on macOS)
-            3. CPU as fallback
-
-        Returns:
-            torch.device: The selected compute device.
-        """
-        if torch.cuda.is_available():
-            device = torch.device("cuda")
-            gpu_name = torch.cuda.get_device_name(0)
-            gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
-            logger.info(f"Using CUDA GPU: {gpu_name} with {gpu_memory:.1f} GB memory")
-        elif torch.backends.mps.is_available():
-            device = torch.device("mps")
-            logger.info("Using Apple Metal Performance Shaders (MPS) for acceleration.")
-        else:
-            device = torch.device("cpu")
-            cpu_count = torch.get_num_threads()
-            logger.info(f"No GPU acceleration available. Using CPU with {cpu_count} threads.")
-        return device
-
     def run(
         self,
         batch_intensities: list[FloatArray],
@@ -155,3 +130,29 @@ class SegmentationModel:
             raise RuntimeError(f"Cellpose segmentation failed: {e}") from e
 
         return np.array(masks_uint16, dtype=np.int64)
+
+    @staticmethod
+    def find_best_available_device() -> torch.device:
+        """Get appropriate compute device (CUDA GPU, Apple Metal, or CPU).
+
+        Determines the best available device for running the segmentation model:
+            1. CUDA GPU if available (NVIDIA GPUs)
+            2. MPS (Metal Performance Shaders) if available (Apple Silicon/AMD GPUs on macOS)
+            3. CPU as fallback
+
+        Returns:
+            torch.device: The selected compute device.
+        """
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
+            logger.info(f"Using CUDA GPU: {gpu_name} with {gpu_memory:.1f} GB memory")
+        elif torch.backends.mps.is_available():
+            device = torch.device("mps")
+            logger.info("Using Apple Metal Performance Shaders (MPS) for acceleration.")
+        else:
+            device = torch.device("cpu")
+            cpu_count = torch.get_num_threads()
+            logger.info(f"No GPU acceleration available. Using CPU with {cpu_count} threads.")
+        return device
