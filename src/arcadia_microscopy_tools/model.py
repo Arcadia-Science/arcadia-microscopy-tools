@@ -1,7 +1,7 @@
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypedDict
 
 import numpy as np
 import torch
@@ -10,6 +10,16 @@ from cellpose.models import CellposeModel
 from .typing import FloatArray, Int64Array
 
 logger = logging.getLogger(__name__)
+
+
+class CellposeParams(TypedDict):
+    """Parameters for CellposeModel.eval() with resolved types."""
+
+    diameter: float
+    flow_threshold: float
+    cellprob_threshold: float
+    niter: int | None
+    batch_size: int
 
 
 @dataclass
@@ -77,31 +87,25 @@ class SegmentationModel:
         cellprob_threshold: float | None,
         num_iterations: int | None,
         batch_size: int | None,
-    ) -> tuple[float, float, float, int | None, int]:
-        """Resolve parameters by using provided values or falling back to defaults."""
-        resolved_cell_diameter_px = (
-            cell_diameter_px if cell_diameter_px is not None else self.default_cell_diameter_px
-        )
-        resolved_flow_threshold = (
-            flow_threshold if flow_threshold is not None else self.default_flow_threshold
-        )
-        resolved_cellprob_threshold = (
-            cellprob_threshold
-            if cellprob_threshold is not None
-            else self.default_cellprob_threshold
-        )
-        resolved_num_iterations = (
-            num_iterations if num_iterations is not None else self.default_num_iterations
-        )
-        resolved_batch_size = batch_size if batch_size is not None else self.default_batch_size
+    ) -> CellposeParams:
+        """Resolve parameters by using provided values or falling back to defaults.
 
-        return (
-            resolved_cell_diameter_px,
-            resolved_flow_threshold,
-            resolved_cellprob_threshold,
-            resolved_num_iterations,
-            resolved_batch_size,
-        )
+        Returns:
+            Dictionary with keys matching CellposeModel.eval() parameter names.
+        """
+        return {
+            "diameter": cell_diameter_px
+            if cell_diameter_px is not None
+            else self.default_cell_diameter_px,
+            "flow_threshold": flow_threshold
+            if flow_threshold is not None
+            else self.default_flow_threshold,
+            "cellprob_threshold": cellprob_threshold
+            if cellprob_threshold is not None
+            else self.default_cellprob_threshold,
+            "niter": num_iterations if num_iterations is not None else self.default_num_iterations,
+            "batch_size": batch_size if batch_size is not None else self.default_batch_size,
+        }
 
     @staticmethod
     def _validate_parameters(
@@ -201,26 +205,18 @@ class SegmentationModel:
             RuntimeError: If the Cellpose model fails during segmentation.
         """
         # Resolve and validate parameters
-        (
-            cell_diameter_px,
-            flow_threshold,
-            cellprob_threshold,
-            num_iterations,
-            batch_size,
-        ) = self._resolve_parameters(
+        params = self._resolve_parameters(
             cell_diameter_px, flow_threshold, cellprob_threshold, num_iterations, batch_size
         )
-        self._validate_parameters(cell_diameter_px, flow_threshold, cellprob_threshold)
+        self._validate_parameters(
+            params["diameter"], params["flow_threshold"], params["cellprob_threshold"]
+        )
 
         try:
             masks_uint16, *_ = self.cellpose_model.eval(
                 x=intensities,
-                batch_size=batch_size,
-                diameter=cell_diameter_px,
-                flow_threshold=flow_threshold,
-                cellprob_threshold=cellprob_threshold,
-                niter=num_iterations,
-                **cellpose_kwargs,
+                **params,
+                **cellpose_kwargs
             )
         except Exception as e:
             raise RuntimeError(f"Cellpose segmentation failed: {e}") from e
@@ -268,16 +264,12 @@ class SegmentationModel:
             failures on one image will halt processing.
         """
         # Resolve and validate parameters once for all images
-        (
-            cell_diameter_px,
-            flow_threshold,
-            cellprob_threshold,
-            num_iterations,
-            batch_size,
-        ) = self._resolve_parameters(
+        params = self._resolve_parameters(
             cell_diameter_px, flow_threshold, cellprob_threshold, num_iterations, batch_size
         )
-        self._validate_parameters(cell_diameter_px, flow_threshold, cellprob_threshold)
+        self._validate_parameters(
+            params["diameter"], params["flow_threshold"], params["cellprob_threshold"]
+        )
 
         # Process each image
         masks = []
@@ -285,11 +277,7 @@ class SegmentationModel:
             try:
                 masks_uint16, *_ = self.cellpose_model.eval(
                     x=intensities,
-                    batch_size=batch_size,
-                    diameter=cell_diameter_px,
-                    flow_threshold=flow_threshold,
-                    cellprob_threshold=cellprob_threshold,
-                    niter=num_iterations,
+                    **params,
                     **cellpose_kwargs,
                 )
                 masks.append(masks_uint16.astype(np.int64))
