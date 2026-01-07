@@ -213,7 +213,7 @@ class SegmentationModel:
 
     def batch_segment(
         self,
-        intensities_list: Sequence[FloatArray],
+        intensities_batch: Sequence[FloatArray],
         cell_diameter_px: float | None = None,
         flow_threshold: float | None = None,
         cellprob_threshold: float | None = None,
@@ -224,7 +224,7 @@ class SegmentationModel:
         """Run cell segmentation on multiple images using Cellpose-SAM.
 
         Args:
-            intensities_list: Sequence of input images, each with shape ([channel], height, width).
+            intensities_batch: Sequence of input images, each with shape ([channel], height, width).
                 Intensity values should be normalized floats, typically in range [0, 1].
             cell_diameter_px: Expected cell diameter. If None, uses default_cell_diameter_px.
                 Applied to all images. See class attributes for details.
@@ -258,7 +258,7 @@ class SegmentationModel:
         )
 
         masks = []
-        for i, intensities in enumerate(intensities_list):
+        for i, intensities in enumerate(intensities_batch):
             try:
                 mask, *_ = self.cellpose_model.eval(
                     x=intensities, **cellpose_params, **cellpose_kwargs
