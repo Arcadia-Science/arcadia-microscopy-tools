@@ -2,12 +2,10 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
 import torch
 from cellpose.models import CellposeModel
 
-from .masks import SegmentationMask
-from .typing import FloatArray
+from .typing import FloatArray, Int64Array
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +139,7 @@ class SegmentationModel:
         num_iterations: int | None = None,
         batch_size: int | None = None,
         **cellpose_kwargs: Any,
-    ) -> SegmentationMask:
+    ) -> Int64Array:
         """Run cell segmentation using Cellpose-SAM.
 
         Args:
@@ -155,8 +153,8 @@ class SegmentationModel:
             cellprob_threshold: Cell probability threshold for mask generation. Higher values
                 result in fewer and more confident masks. Must be between -10 and 10.
                 If None, uses the default value.
-            num_iterations: Number of iterations for segmentation algorithm. If None, uses
-                the default value (which may itself be None, triggering Cellpose's internal default).
+            num_iterations: Number of iterations for segmentation algorithm. If none, uses the
+                default value (which may itself be None, triggering Cellpose's internal default).
             batch_size: Number of 256x256 patches to run simultaneously on the GPU.
                 Can be adjusted based on GPU memory. If None, uses the default value.
             **cellpose_kwargs: Additional keyword arguments passed to CellposeModel.eval().
@@ -206,4 +204,4 @@ class SegmentationModel:
         except Exception as e:
             raise RuntimeError(f"Cellpose segmentation failed: {e}") from e
 
-        return SegmentationMask(masks_uint16)
+        return masks_uint16.astype(Int64Array)
