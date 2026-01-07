@@ -1,7 +1,9 @@
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any
 
+import numpy as np
 import torch
 from cellpose.models import CellposeModel
 
@@ -86,7 +88,8 @@ class SegmentationModel:
             batch_size: Batch size, or None to use default.
 
         Returns:
-            Tuple of (cell_diameter_px, flow_threshold, cellprob_threshold, num_iterations, batch_size)
+            Tuple of (cell_diameter_px, flow_threshold, cellprob_threshold, num_iterations,
+                batch_size)
             with defaults applied where parameters were None.
         """
         resolved_cell_diameter_px = (
@@ -241,7 +244,7 @@ class SegmentationModel:
         except Exception as e:
             raise RuntimeError(f"Cellpose segmentation failed: {e}") from e
 
-        return masks_uint16.astype(Int64Array)
+        return masks_uint16.astype(np.int64)
 
     def batch_segment(
         self,
@@ -261,8 +264,8 @@ class SegmentationModel:
                 floats, typically in range [0, 1].
             cell_diameter_px: Expected cell diameter in pixels. If None, uses the default
                 value set during model initialization. Applied to all images.
-            flow_threshold: Flow error threshold for mask generation. Higher values result
-                in fewer masks. Must be >= 0. If None, uses the default value. Applied to all images.
+            flow_threshold: Flow error threshold for mask generation. Higher values result in
+                fewer masks. Must be >= 0. If None, uses the default value. Applied to all images.
             cellprob_threshold: Cell probability threshold for mask generation. Higher values
                 result in fewer and more confident masks. Must be between -10 and 10.
                 If None, uses the default value. Applied to all images.
@@ -299,7 +302,7 @@ class SegmentationModel:
         self._validate_parameters(cell_diameter_px, flow_threshold, cellprob_threshold)
 
         # Process each image
-        results = []
+        masks = []
         for i, intensities in enumerate(intensities_list):
             try:
                 masks_uint16, *_ = self.cellpose_model.eval(
@@ -311,8 +314,8 @@ class SegmentationModel:
                     niter=num_iterations,
                     **cellpose_kwargs,
                 )
-                results.append(masks_uint16.astype(Int64Array))
+                masks.append(masks_uint16.astype(np.int64))
             except Exception as e:
                 raise RuntimeError(f"Cellpose segmentation failed on image {i}: {e}") from e
 
-        return results
+        return masks
