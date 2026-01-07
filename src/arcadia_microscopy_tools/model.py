@@ -78,20 +78,7 @@ class SegmentationModel:
         num_iterations: int | None,
         batch_size: int | None,
     ) -> tuple[float, float, float, int | None, int]:
-        """Resolve parameters by using provided values or falling back to defaults.
-
-        Args:
-            cell_diameter_px: Expected cell diameter in pixels, or None to use default.
-            flow_threshold: Flow error threshold, or None to use default.
-            cellprob_threshold: Cell probability threshold, or None to use default.
-            num_iterations: Number of iterations, or None to use default.
-            batch_size: Batch size, or None to use default.
-
-        Returns:
-            Tuple of (cell_diameter_px, flow_threshold, cellprob_threshold, num_iterations,
-                batch_size)
-            with defaults applied where parameters were None.
-        """
+        """Resolve parameters by using provided values or falling back to defaults."""
         resolved_cell_diameter_px = (
             cell_diameter_px if cell_diameter_px is not None else self.default_cell_diameter_px
         )
@@ -191,33 +178,27 @@ class SegmentationModel:
         """Run cell segmentation using Cellpose-SAM.
 
         Args:
-            intensities: Input image intensities with shape ([channel], height, width)
-                where the channel dimension is optional. Intensity values should be normalized
-                floats, typically in range [0, 1].
-            cell_diameter_px: Expected cell diameter in pixels. If None, uses the default
-                value set during model initialization.
-            flow_threshold: Flow error threshold for mask generation. Higher values result
-                in fewer masks. Must be >= 0. If None, uses the default value.
-            cellprob_threshold: Cell probability threshold for mask generation. Higher values
-                result in fewer and more confident masks. Must be between -10 and 10.
-                If None, uses the default value.
-            num_iterations: Number of iterations for segmentation algorithm. If none, uses the
-                default value (which may itself be None, triggering Cellpose's internal default).
-            batch_size: Number of 256x256 patches to run simultaneously on the GPU.
-                Can be adjusted based on GPU memory. If None, uses the default value.
-            **cellpose_kwargs: Additional keyword arguments passed to CellposeModel.eval().
-                Common options include 'min_size' (minimum cell size in pixels).
+            intensities: Input image intensities with shape ([channel], height, width).
+                Intensity values should be normalized floats, typically in range [0, 1].
+            cell_diameter_px: Expected cell diameter in pixels. If None, uses
+                default_cell_diameter_px. See class attributes for details.
+            flow_threshold: Flow error threshold. If None, uses default_flow_threshold.
+                See class attributes for details.
+            cellprob_threshold: Cell probability threshold. If None, uses
+                default_cellprob_threshold. See class attributes for details.
+            num_iterations: Number of iterations. If None, uses default_num_iterations.
+                See class attributes for details.
+            batch_size: GPU batch size. If None, uses default_batch_size.
+                See class attributes for details.
+            **cellpose_kwargs: Additional arguments passed to CellposeModel.eval().
+                Full list: https://cellpose.readthedocs.io/en/latest/api.html#id0
 
         Returns:
-            SegmentationMask: Container with the segmentation mask and feature extraction methods.
+            Segmentation mask as Int64Array.
 
         Raises:
             ValueError: If parameters are out of valid ranges.
             RuntimeError: If the Cellpose model fails during segmentation.
-
-        See also:
-            - For full list of optional cellpose_kwargs, see:
-              https://cellpose.readthedocs.io/en/latest/api.html#id0
         """
         # Resolve and validate parameters
         (
@@ -259,23 +240,20 @@ class SegmentationModel:
         """Run cell segmentation on multiple images using Cellpose-SAM.
 
         Args:
-            intensities_list: Sequence of input images, each with shape ([channel], height, width)
-                where the channel dimension is optional. Intensity values should be normalized
-                floats, typically in range [0, 1].
-            cell_diameter_px: Expected cell diameter in pixels. If None, uses the default
-                value set during model initialization. Applied to all images.
-            flow_threshold: Flow error threshold for mask generation. Higher values result in
-                fewer masks. Must be >= 0. If None, uses the default value. Applied to all images.
-            cellprob_threshold: Cell probability threshold for mask generation. Higher values
-                result in fewer and more confident masks. Must be between -10 and 10.
-                If None, uses the default value. Applied to all images.
-            num_iterations: Number of iterations for segmentation algorithm. If None, uses the
-                default value (which may itself be None, triggering Cellpose's internal default).
-                Applied to all images.
-            batch_size: Number of 256x256 patches to run simultaneously on the GPU.
-                Can be adjusted based on GPU memory. If None, uses the default value.
-            **cellpose_kwargs: Additional keyword arguments passed to CellposeModel.eval().
-                Common options include 'min_size' (minimum cell size in pixels).
+            intensities_list: Sequence of input images, each with shape ([channel], height, width).
+                Intensity values should be normalized floats, typically in range [0, 1].
+            cell_diameter_px: Expected cell diameter. If None, uses default_cell_diameter_px.
+                Applied to all images. See class attributes for details.
+            flow_threshold: Flow error threshold. If None, uses default_flow_threshold.
+                Applied to all images. See class attributes for details.
+            cellprob_threshold: Cell probability threshold. If None, uses
+                default_cellprob_threshold. Applied to all images. See class attributes for details.
+            num_iterations: Number of iterations. If None, uses default_num_iterations.
+                Applied to all images. See class attributes for details.
+            batch_size: GPU batch size. If None, uses default_batch_size.
+                See class attributes for details.
+            **cellpose_kwargs: Additional arguments passed to CellposeModel.eval().
+                Full list: https://cellpose.readthedocs.io/en/latest/api.html#id0
 
         Returns:
             List of segmentation mask arrays, one for each input image.
@@ -285,9 +263,9 @@ class SegmentationModel:
             RuntimeError: If the Cellpose model fails during segmentation.
 
         Notes:
-            - All images are processed with the same segmentation parameters.
-            - Parameters are resolved and validated once before processing any images.
-            - Each image is processed independently; failures on one image will halt processing.
+            All images are processed with the same parameters, which are resolved and
+            validated once before processing. Each image is processed independently;
+            failures on one image will halt processing.
         """
         # Resolve and validate parameters once for all images
         (
