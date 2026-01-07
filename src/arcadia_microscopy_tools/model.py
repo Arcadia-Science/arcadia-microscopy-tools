@@ -169,6 +169,32 @@ class SegmentationModel:
                 raise RuntimeError(f"Failed to load Cellpose model: {e}") from e
         return self._model
 
+    def _segment_with_params(
+        self,
+        intensities: FloatArray,
+        params: CellposeParams,
+        **cellpose_kwargs: Any,
+    ) -> Int64Array:
+        """Core segmentation logic with pre-resolved parameters.
+
+        Args:
+            intensities: Input image intensities with shape ([channel], height, width).
+            params: Resolved and validated cellpose parameters.
+            **cellpose_kwargs: Additional arguments passed to CellposeModel.eval().
+
+        Returns:
+            Segmentation mask as Int64Array.
+
+        Raises:
+            RuntimeError: If the Cellpose model fails during segmentation.
+        """
+        try:
+            mask, *_ = self.cellpose_model.eval(x=intensities, **params, **cellpose_kwargs)
+        except Exception as e:
+            raise RuntimeError(f"Cellpose segmentation failed: {e}") from e
+
+        return mask.astype(np.int64)
+
     def segment(
         self,
         intensities: FloatArray,
@@ -212,16 +238,7 @@ class SegmentationModel:
             params["diameter"], params["flow_threshold"], params["cellprob_threshold"]
         )
 
-        try:
-            masks_uint16, *_ = self.cellpose_model.eval(
-                x=intensities,
-                **params,
-                **cellpose_kwargs
-            )
-        except Exception as e:
-            raise RuntimeError(f"Cellpose segmentation failed: {e}") from e
-
-        return masks_uint16.astype(np.int64)
+        return self._segment_with_params(intensities, params, **cellpose_kwargs)
 
     def batch_segment(
         self,
@@ -232,7 +249,7 @@ class SegmentationModel:
         num_iterations: int | None = None,
         batch_size: int | None = None,
         **cellpose_kwargs: Any,
-    ) -> list[Int64Array]:
+    ) -> list[Int64Array | None]:
         """Run cell segmentation on multiple images using Cellpose-SAM.
 
         Args:
@@ -252,16 +269,18 @@ class SegmentationModel:
                 Full list: https://cellpose.readthedocs.io/en/latest/api.html#id0
 
         Returns:
-            List of segmentation mask arrays, one for each input image.
+            List of segmentation mask arrays, one for each input image. Failed segmentations
+            are represented as None in the output list, maintaining index alignment with the
+            input list.
 
         Raises:
             ValueError: If parameters are out of valid ranges.
-            RuntimeError: If the Cellpose model fails during segmentation.
 
         Notes:
             All images are processed with the same parameters, which are resolved and
-            validated once before processing. Each image is processed independently;
-            failures on one image will halt processing.
+            validated once before processing. Each image is processed independently.
+            If segmentation fails for an image, the error is logged and None is returned
+            for that image, but processing continues for remaining images.
         """
         # Resolve and validate parameters once for all images
         params = self._resolve_parameters(
@@ -275,13 +294,10 @@ class SegmentationModel:
         masks = []
         for i, intensities in enumerate(intensities_list):
             try:
-                masks_uint16, *_ = self.cellpose_model.eval(
-                    x=intensities,
-                    **params,
-                    **cellpose_kwargs,
-                )
-                masks.append(masks_uint16.astype(np.int64))
-            except Exception as e:
-                raise RuntimeError(f"Cellpose segmentation failed on image {i}: {e}") from e
+                mask = self._segment_with_params(intensities, params, **cellpose_kwargs)
+                masks.append(mask)
+            except RuntimeError as e:
+                logger.error(f"Cellpose segmentation failed on image {i}: {e}")
+                masks.append(None)
 
         return masks
