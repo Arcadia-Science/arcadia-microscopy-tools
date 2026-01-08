@@ -33,7 +33,7 @@ class ImageMetadata:
     def channel_axis(self) -> int | None:
         """Get the axis index for the channel dimension, or None if single channel."""
         if "C" in self.sizes:
-            return next(i for i, k in enumerate(self.sizes.keys()) if k == "C")
+            return next((i for i, k in enumerate(self.sizes.keys()) if k == "C"), None)
 
     @cached_property
     def dimensions(self) -> DimensionFlags:
@@ -83,7 +83,7 @@ class Metadata:
         sample: Optional dictionary containing sample-specific metadata.
     """
 
-    image: ImageMetadata | None = None
+    image: ImageMetadata
     sample: dict[str, Any] | None = None
 
 
@@ -137,19 +137,6 @@ class MicroscopyImage:
 
         return f"MicroscopyImage({info})"
 
-    def _get_image_metadata(self) -> ImageMetadata:
-        """Get image metadata or raise a clear error if not available.
-
-        Returns:
-            ImageMetadata: The image metadata.
-
-        Raises:
-            ValueError: If no image metadata is available.
-        """
-        if self.metadata.image is None:
-            raise ValueError("No image metadata available")
-        return self.metadata.image
-
     @classmethod
     def from_nd2_path(
         cls,
@@ -177,20 +164,38 @@ class MicroscopyImage:
     def from_lif_path(
         cls,
         lif_path: Path,
+        image_name: str,
         sample_metadata: dict[str, Any] | None = None,
     ) -> MicroscopyImage:
         """Create MicroscopyImage from a Leica LIF file.
 
         Args:
             lif_path: Path to the Leica LIF file.
+            image_name: Name of the image within the LIF file to load.
             sample_metadata: Optional dictionary containing sample-specific metadata.
 
         Returns:
             MicroscopyImage: A new microscopy image with intensity data and metadata.
+
+        Note:
+            LIF files currently have minimal metadata support. Channel metadata is not
+            parsed, so operations requiring channel information may not work as expected.
         """
-        intensities = liffile.imread(lif_path)
-        # TODO: create parser for LIF metadata
-        metadata = Metadata(None, sample_metadata)
+        with liffile.LifFile(lif_path) as lif:
+            for image in lif.images:
+                if image.name == image_name:
+                    intensities = image.asarray()
+                    sizes = image.sizes
+                    break
+            else:
+                raise ValueError(
+                    f"Image {image_name} not found in {lif_path}. Available images: "
+                    f"{[image.name for image in lif.images]}"
+                )
+
+        # TODO: create parser for LIF metadata - for now create minimal ImageMetadata
+        image_metadata = ImageMetadata(sizes=sizes, channel_metadata_list=[])
+        metadata = Metadata(image_metadata, sample_metadata)
         return cls(intensities, metadata)
 
     @property
@@ -201,30 +206,30 @@ class MicroscopyImage:
     @property
     def sizes(self) -> dict[str, int]:
         """Get the dimension sizes dictionary (e.g., {'T': 100, 'C': 2, 'Y': 512, 'X': 512})."""
-        return self._get_image_metadata().sizes
+        return self.metadata.image.sizes
 
     @property
     def dimensions(self) -> DimensionFlags:
         """Get the dimension flags indicating which dimensions are present."""
-        return self._get_image_metadata().dimensions
+        return self.metadata.image.dimensions
 
     @property
     def channels(self) -> list[Channel]:
         """Get the list of channels in this image."""
         return [
             channel_metadata.channel
-            for channel_metadata in self._get_image_metadata().channel_metadata_list
+            for channel_metadata in self.metadata.image.channel_metadata_list
         ]
 
     @property
     def channel_axis(self) -> int | None:
         """Get the axis index for the channel dimension, or None if single channel."""
-        return self._get_image_metadata().channel_axis
+        return self.metadata.image.channel_axis
 
     @property
     def num_channels(self) -> int:
         """Get the number of channels in this image."""
-        return len(self._get_image_metadata().channel_metadata_list)
+        return len(self.metadata.image.channel_metadata_list)
 
     def get_intensities_from_channel(self, channel: Channel) -> UInt16Array:
         """Extract intensity data for a specific channel.
