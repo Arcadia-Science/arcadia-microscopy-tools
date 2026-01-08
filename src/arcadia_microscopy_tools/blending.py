@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import dataclass
 
 from arcadia_pycolor import HexCode
 from matplotlib.cm import ScalarMappable
@@ -9,25 +10,102 @@ from .channels import Channel
 from .typing import FloatArray
 
 
-def create_overlay(
+@dataclass
+class Layer:
+    """A single layer in a fluorescence overlay.
+
+    Args:
+        channel: Channel object containing color and metadata.
+        intensities: 2D array of intensity values in [0, 1].
+        opacity: Global opacity multiplier for this layer in [0, 1]. Default is 1 (fully opaque).
+        transparent: If True (default), colormap goes from transparent white to channel color.
+            If False, colormap goes from black to channel color.
+    """
+
+    channel: Channel
+    intensities: FloatArray
+    opacity: float = 1.0
+    transparent: bool = True
+
+    def __post_init__(self):
+        """Validate that the channel has a color defined."""
+        if self.channel.color is None:
+            raise ValueError(f"Channel '{self.channel.name}' has no color defined")
+
+
+def overlay_channels(
     background: FloatArray,
-    foreground_rgba: FloatArray,
-    opacity: float = 1,
+    channel_intensities: dict[Channel, FloatArray],
+    opacity: float = 1.0,
+    transparent: bool = True,
 ) -> FloatArray:
-    """Create an overlay by alpha blending foreground onto background.
+    """Create a fluorescence overlay.
+
+    All channels are blended with the same opacity and transparency settings.
 
     Args:
         background: 2D grayscale background image with values in [0, 1].
-        foreground_rgba: RGBA foreground image (HxWx4 array) with values in [0, 1].
-        opacity: Global opacity multiplier for the foreground. Default is 1 (fully opaque).
+        channel_intensities: Dict mapping Channel objects to their intensity arrays
+            (2D, values in [0, 1]).
+        opacity: Global opacity multiplier for all channels. Default is 1 (fully opaque).
+        transparent: If True (default), all colormaps go from transparent white to channel color.
+            If False, all colormaps go from black to channel color.
 
     Returns:
-        RGB image (HxWx3 array) with foreground alpha-blended onto background.
+        RGB image (HxWx3 array) with all channels alpha-blended onto background.
+
+    Example:
+        >>> # Simple overlay with default settings
+        >>> overlay = overlay_channels(
+        ...     background=brightfield,
+        ...     channel_intensities={
+        ...         DAPI: dapi_intensities,
+        ...         FITC: fitc_intensities,
+        ...         TRITC: tritc_intensities,
+        ...     }
+        ... )
     """
-    background_rgb = gray2rgb(background)
-    foreground_rgb = foreground_rgba[..., :3]
-    alpha = opacity * foreground_rgba[..., 3:4]
-    return alpha_blend(background_rgb, foreground_rgb, alpha)
+    layers = [
+        Layer(channel, intensities, opacity, transparent)
+        for channel, intensities in channel_intensities.items()
+    ]
+    return create_sequential_overlay(background, layers)
+
+
+def create_sequential_overlay(
+    background: FloatArray,
+    layers: list[Layer],
+) -> FloatArray:
+    """Create an overlay by sequentially blending multiple channels onto a background.
+
+    Args:
+        background: 2D grayscale background image with values in [0, 1].
+        layers: List of Layer objects to overlay in sequence.
+
+    Returns:
+        RGB image (HxWx3 array) with all layers alpha-blended onto background.
+
+    Example:
+        >>> # Fine-grained control over each layer
+        >>> overlay = create_sequential_overlay(
+        ...     background=brightfield,
+        ...     layers=[
+        ...         Layer(DAPI, dapi_intensities),
+        ...         Layer(FITC, fitc_intensities, opacity=0.8),
+        ...         Layer(TRITC, tritc_intensities, transparent=False),  # Opaque colormap
+        ...     ]
+        ... )
+    """
+    result = gray2rgb(background)
+
+    for layer in layers:
+        colormap = channel_to_colormap(layer.channel, transparent=layer.transparent)
+        foreground_rgba = colorize(layer.intensities, colormap)
+        foreground_rgb = foreground_rgba[..., :3]
+        alpha = layer.opacity * foreground_rgba[..., 3:4]
+        result = alpha_blend(result, foreground_rgb, alpha)
+
+    return result
 
 
 def alpha_blend(
@@ -75,35 +153,38 @@ def colorize(
     return mapper.to_rgba(intensities)
 
 
-def channel_to_opaque_colormap(channel: Channel) -> LinearSegmentedColormap:
-    """Create an opaque colormap from a Channel's color.
+def channel_to_colormap(
+    channel: Channel,
+    transparent: bool = True,
+) -> LinearSegmentedColormap:
+    """Convert a Channel to a matplotlib colormap.
 
     Args:
-        channel: The Channel to create a colormap from.
+        channel: Channel object containing color information.
+        transparent: If True (default), creates a colormap from transparent white to channel color.
+            If False, creates a colormap from black to channel color.
 
     Returns:
-        A LinearSegmentedColormap from black to the channel's color.
+        LinearSegmentedColormap suitable for visualizing the channel.
 
     Raises:
         ValueError: If the channel has no color defined.
     """
+    if transparent:
+        return channel_to_semitransparent_colormap(channel)
+    else:
+        return channel_to_opaque_colormap(channel)
+
+
+def channel_to_opaque_colormap(channel: Channel) -> LinearSegmentedColormap:
+    """Create an opaque colormap from a Channel's color."""
     if channel.color is None:
         raise ValueError(f"Channel '{channel.name}' has no color")
     return create_opaque_colormap(color=channel.color, name=channel.name)
 
 
 def channel_to_semitransparent_colormap(channel: Channel) -> LinearSegmentedColormap:
-    """Create a semi-transparent colormap from a Channel's color.
-
-    Args:
-        channel: The Channel to create a colormap from.
-
-    Returns:
-        A LinearSegmentedColormap from transparent white to the channel's color.
-
-    Raises:
-        ValueError: If the channel has no color defined.
-    """
+    """Create a semi-transparent colormap from a Channel's color."""
     if channel.color is None:
         raise ValueError(f"Channel '{channel.name}' has no color")
     return create_semitransparent_colormap(color=channel.color, name=channel.name)
