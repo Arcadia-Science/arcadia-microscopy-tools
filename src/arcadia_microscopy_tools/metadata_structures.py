@@ -35,6 +35,7 @@ class DimensionValidatorMixin:
 class DimensionFlags(Flag):
     """Bit flags for what dimensions are present."""
 
+    SPATIAL_2D = 0
     MULTICHANNEL = auto()
     TIMELAPSE = auto()
     Z_STACK = auto()
