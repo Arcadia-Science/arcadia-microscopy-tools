@@ -18,14 +18,14 @@ class Layer:
         channel: Channel object containing color and metadata.
         intensities: 2D array of intensity values in [0, 1].
         opacity: Global opacity multiplier for this layer in [0, 1]. Default is 1 (fully opaque).
-        transparent: If True, colormap goes from transparent white to channel color.
-                    If False (default), colormap goes from black to channel color.
+        transparent: If True (default), colormap goes from transparent white to channel color.
+            If False, colormap goes from black to channel color.
     """
 
     channel: Channel
     intensities: FloatArray
     opacity: float = 1.0
-    transparent: bool = False
+    transparent: bool = True
 
     def __post_init__(self):
         """Validate that the channel has a color defined."""
@@ -35,21 +35,21 @@ class Layer:
 
 def overlay_channels(
     background: FloatArray,
-    channels: dict[Channel, FloatArray],
+    channel_intensities: dict[Channel, FloatArray],
     opacity: float = 1.0,
-    transparent: bool = False,
+    transparent: bool = True,
 ) -> FloatArray:
-    """Create a fluorescence overlay with minimal configuration.
+    """Create a fluorescence overlay.
 
-    This is the simplest way to create multi-channel fluorescence overlays.
     All channels are blended with the same opacity and transparency settings.
 
     Args:
         background: 2D grayscale background image with values in [0, 1].
-        channels: Dict mapping Channel objects to their intensity arrays (2D, values in [0, 1]).
+        channel_intensities: Dict mapping Channel objects to their intensity arrays
+            (2D, values in [0, 1]).
         opacity: Global opacity multiplier for all channels. Default is 1 (fully opaque).
-        transparent: If True, all colormaps go from transparent white to channel color.
-                    If False (default), all colormaps go from black to channel color.
+        transparent: If True (default), all colormaps go from transparent white to channel color.
+            If False, all colormaps go from black to channel color.
 
     Returns:
         RGB image (HxWx3 array) with all channels alpha-blended onto background.
@@ -58,7 +58,7 @@ def overlay_channels(
         >>> # Simple overlay with default settings
         >>> overlay = overlay_channels(
         ...     background=brightfield,
-        ...     channels={
+        ...     channel_intensities={
         ...         DAPI: dapi_intensities,
         ...         FITC: fitc_intensities,
         ...         TRITC: tritc_intensities,
@@ -67,7 +67,7 @@ def overlay_channels(
     """
     layers = [
         Layer(channel, intensities, opacity, transparent)
-        for channel, intensities in channels.items()
+        for channel, intensities in channel_intensities.items()
     ]
     return create_sequential_overlay(background, layers)
 
@@ -92,7 +92,7 @@ def create_sequential_overlay(
         ...     layers=[
         ...         Layer(DAPI, dapi_intensities),
         ...         Layer(FITC, fitc_intensities, opacity=0.8),
-        ...         Layer(TRITC, tritc_intensities, transparent=True),
+        ...         Layer(TRITC, tritc_intensities, transparent=False),  # Opaque colormap
         ...     ]
         ... )
     """
@@ -155,14 +155,14 @@ def colorize(
 
 def channel_to_colormap(
     channel: Channel,
-    transparent: bool = False,
+    transparent: bool = True,
 ) -> LinearSegmentedColormap:
     """Convert a Channel to a matplotlib colormap.
 
     Args:
         channel: Channel object containing color information.
-        transparent: If True, creates a colormap from transparent white to channel color.
-            If False (default), creates a colormap from black to channel color.
+        transparent: If True (default), creates a colormap from transparent white to channel color.
+            If False, creates a colormap from black to channel color.
 
     Returns:
         LinearSegmentedColormap suitable for visualizing the channel.
