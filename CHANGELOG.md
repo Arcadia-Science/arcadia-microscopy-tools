@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-01-08
+
+### Added
+- New `cell_segmentation.ipynb` example notebook demonstrating:
+  - Cell segmentation workflow using Cellpose integration
+  - Image preprocessing with percentile-based rescaling
+  - Visualization of segmentation results with cell outlines
+  - Comprehensive documentation and explanations
+
 ## [0.2.0] - 2026-01-02
 
 ### Changed (Breaking)
@@ -13,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ImageMetadata` now contains `sizes` dict and `channel_metadata_list`
   - Added `dimensions` property to derive `DimensionFlags` from all channels
 - Changed `Channel` from Enum to dataclass with registration system
-  - Now supports custom channels via `Channel.from_wavelength()` and `Channel.from_optical_config_name()`
+  - Now supports custom channels via `Channel.from_emission_wavelength()`, `Channel.from_excitation_wavelength()`, and `Channel.from_optical_config_name()`
 - Renamed `frame_interval_ms` to `frame_intervals_ms` (now a numpy array of intervals)
 - Removed `MULTICHANNEL` flag from individual channel dimensions (now only at image level)
 

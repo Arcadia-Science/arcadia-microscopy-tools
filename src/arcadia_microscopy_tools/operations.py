@@ -6,7 +6,7 @@ import skimage as ski
 from .typing import FloatArray, ScalarArray
 
 
-def rescale_intensity_by_percentiles(
+def rescale_by_percentile(
     intensities: ScalarArray,
     percentile_range: tuple[float, float] = (0, 100),
     out_range: tuple[float, float] = (0, 1),
@@ -55,11 +55,11 @@ def rescale_intensity_by_percentiles(
     )
 
 
-def get_background_subtracted_intensities(
+def subtract_background_dog(
     intensities: ScalarArray,
-    percentile: float = 30.0,
     low_sigma: float = 0.6,
     high_sigma: float = 16.0,
+    percentile: float = 0,
 ) -> FloatArray:
     """Subtract background from image using difference of Gaussians and percentile thresholding.
 
@@ -68,15 +68,15 @@ def get_background_subtracted_intensities(
 
     Args:
         intensities: Input image array.
+        low_sigma:
+            Standard deviation for the smaller Gaussian kernel. Controls fine detail enhancement.
+            Default is 0.6.
+        high_sigma:
+            Standard deviation for the larger Gaussian kernel. Controls background estimation
+            extent. Default is 16.
         percentile:
             Percentile of filtered image to use as background level (0-100).
-            Lower values remove more background.
-        low_sigma:
-            Standard deviation for the smaller Gaussian kernel.
-            Controls fine detail enhancement.
-        high_sigma:
-            Standard deviation for the larger Gaussian kernel.
-            Controls background estimation extent.
+            Default is 0 (minimum value).
 
     Returns:
         FloatArray: Background-subtracted image with negative values clipped to zero.

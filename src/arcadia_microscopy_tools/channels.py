@@ -79,13 +79,13 @@ class Channel:
         raise ValueError(f"{optical_config} is not a known optical configuration.")
 
     @classmethod
-    def from_wavelength(
+    def from_emission_wavelength(
         cls,
         wavelength_nm: float,
         excitation_nm: int | None = None,
         name: str | None = None,
     ) -> Channel:
-        """Create a channel from a wavelength with automatically generated color.
+        """Create a channel from an emission wavelength with automatically generated color.
 
         Args:
             wavelength_nm: Emission wavelength in nanometers. Valid range is 360-780 nm.
@@ -100,6 +100,31 @@ class Channel:
             name=color.name,
             excitation_nm=excitation_nm,
             emission_nm=int(wavelength_nm),
+            color=color,
+        )
+
+    @classmethod
+    def from_excitation_wavelength(
+        cls,
+        wavelength_nm: float,
+        emission_nm: int | None = None,
+        name: str | None = None,
+    ) -> Channel:
+        """Create a channel from an excitation wavelength with automatically generated color.
+
+        Args:
+            wavelength_nm: Excitation wavelength in nanometers. Valid range is 360-780 nm.
+            emission_nm: Optional emission wavelength in nanometers.
+            name: Optional name for the channel. If not provided, defaults to "{wavelength}nm".
+
+        Returns:
+            Channel with the excitation wavelength and corresponding color.
+        """
+        color = cls.wavelength_to_color(wavelength_nm, name)
+        return cls(
+            name=color.name,
+            excitation_nm=int(wavelength_nm),
+            emission_nm=emission_nm,
             color=color,
         )
 
@@ -162,7 +187,7 @@ CY5 = Channel.register(
     Channel(name="CY5", excitation_nm=640, emission_nm=665, color=HexCode("cy5", "#a30000"))
 )
 CARS = Channel.register(
-    Channel(name="CARS", color=HexCode("cars", "#5d050c")),
+    Channel(name="CARS", color=HexCode("cars", "#AB1299")),
 )
 SRS = Channel.register(
     Channel(name="SRS", color=HexCode("srs", "#e63535")),

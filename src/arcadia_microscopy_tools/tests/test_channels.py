@@ -92,30 +92,30 @@ class TestFromOpticalConfigName:
             Channel.from_optical_config_name("COMPLETELY_UNKNOWN_12345")
 
 
-class TestFromWavelength:
-    def test_from_wavelength_basic(self):
-        channel = Channel.from_wavelength(520)
+class TestFromEmissionWavelength:
+    def test_from_emission_wavelength_basic(self):
+        channel = Channel.from_emission_wavelength(520)
         assert channel.name == "520nm"
         assert channel.emission_nm == 520
         assert channel.color is not None
         assert channel.excitation_nm is None
 
-    def test_from_wavelength_with_name(self):
-        channel = Channel.from_wavelength(520, name="Green")
+    def test_from_emission_wavelength_with_name(self):
+        channel = Channel.from_emission_wavelength(520, name="Green")
         assert channel.name == "Green"
         assert channel.emission_nm == 520
 
-    def test_from_wavelength_with_excitation(self):
-        channel = Channel.from_wavelength(520, excitation_nm=488)
+    def test_from_emission_wavelength_with_excitation(self):
+        channel = Channel.from_emission_wavelength(520, excitation_nm=488)
         assert channel.excitation_nm == 488
         assert channel.emission_nm == 520
 
-    def test_from_wavelength_invalid_range(self):
+    def test_from_emission_wavelength_invalid_range(self):
         with pytest.raises(ValueError, match="360 and 780 nm"):
-            Channel.from_wavelength(200)  # Too low
+            Channel.from_emission_wavelength(200)  # Too low
 
         with pytest.raises(ValueError, match="360 and 780 nm"):
-            Channel.from_wavelength(1000)  # Too high
+            Channel.from_emission_wavelength(1000)  # Too high
 
 
 class TestWavelengthToColor:
