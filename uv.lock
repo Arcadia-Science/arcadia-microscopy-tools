@@ -182,13 +182,9 @@ segmentation = [
 [package.dev-dependencies]
 dev = [
     { name = "jupyter" },
-    { name = "pytest" },
-]
-lint = [
-    { name = "ruff" },
-]
-typing = [
     { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
@@ -211,10 +207,10 @@ provides-extras = ["segmentation", "compute", "all"]
 [package.metadata.requires-dev]
 dev = [
     { name = "jupyter", specifier = ">=1.1.1" },
+    { name = "pyright", specifier = ">=1.1.407" },
     { name = "pytest", specifier = ">=8.4.1" },
+    { name = "ruff", specifier = ">=0.12.7" },
 ]
-lint = [{ name = "ruff", specifier = ">=0.12.7" }]
-typing = [{ name = "pyright", specifier = ">=1.1.407" }]
 
 [[package]]
 name = "arcadia-pycolor"
