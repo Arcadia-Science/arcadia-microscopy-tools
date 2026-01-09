@@ -36,12 +36,8 @@ all = [
 dev = [
     "jupyter>=1.1.1",
     "pytest>=8.4.1",
-]
-lint = [
-    "ruff>=0.12.7",
-]
-typing = [
     "pyright>=1.1.407",
+    "ruff>=0.12.7",
 ]
 
 
