@@ -10,7 +10,7 @@ dependencies = [
     "colour-science>=0.4.7",
     "liffile>=2025.12.12",
     "nd2>=0.10.3",
-    "numpy<2.1",
+    "numpy>=2.4",
     "scikit-image>=0.25.2",
     "scikit-learn>=1.7.1",
     "torch>=2.7.1",
