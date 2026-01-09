@@ -11,8 +11,36 @@ This package provides tooling for image preprocessing, cell/particle segmentatio
 
 ## Installation
 
+### Basic installation
+
+Install the core package with essential dependencies:
+
 ```bash
 pip install git+https://github.com/Arcadia-Science/arcadia-microscopy-tools.git
+```
+
+### Optional dependencies
+
+Additional features are available as optional dependencies:
+
+**Segmentation** (includes cellpose for cell/particle segmentation):
+```bash
+pip install "arcadia-microscopy-tools[segmentation] @ git+https://github.com/Arcadia-Science/arcadia-microscopy-tools.git"
+```
+
+**Cloud compute** (includes Modal for cloud-based processing):
+```bash
+pip install "arcadia-microscopy-tools[compute] @ git+https://github.com/Arcadia-Science/arcadia-microscopy-tools.git"
+```
+
+**All optional dependencies**:
+```bash
+pip install "arcadia-microscopy-tools[all] @ git+https://github.com/Arcadia-Science/arcadia-microscopy-tools.git"
+```
+
+You can also combine multiple extras:
+```bash
+pip install "arcadia-microscopy-tools[segmentation,compute] @ git+https://github.com/Arcadia-Science/arcadia-microscopy-tools.git"
 ```
 
 ## Usage
