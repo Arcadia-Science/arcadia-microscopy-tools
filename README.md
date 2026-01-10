@@ -7,7 +7,7 @@ This repository contains a Python package called `arcadia_microscopy_tools`. The
 - Nikon ECLIPSE Ni-E (Babu Frik)
 - Leica Stellaris 8 (The Borg)
 
-This package provides tooling for image preprocessing, cell/particle segmentation, morphology analysis, fluorescence quantification, and batch processing pipelines. Supports native file formats (ND2 via [nd2](https://github.com/tlambert03/nd2) and LIF via [readlif](https://github.com/arcadia-science/readlif)) and integrates with popular scientific Python libraries for streamlined high-content screening and quantitative microscopy workflows.
+This package provides tooling for image preprocessing, cell/particle segmentation, morphology analysis, fluorescence quantification, and batch processing pipelines. Supports native ND2 file format via [nd2](https://github.com/tlambert03/nd2). LIF file support is in progress and will use [liffile](https://github.com/nimne/liffile). The package integrates with popular scientific Python libraries for streamlined high-content screening and quantitative microscopy workflows.
 
 ## Installation
 
@@ -16,31 +16,23 @@ This package provides tooling for image preprocessing, cell/particle segmentatio
 Install the core package with essential dependencies:
 
 ```bash
-pip install git+https://github.com/Arcadia-Science/arcadia-microscopy-tools.git
+pip install arcadia-microscopy-tools
 ```
 
 ### Optional dependencies
 
-Additional features are available as optional dependencies:
+Install with optional features using extras:
 
-**Segmentation** (includes cellpose for cell/particle segmentation):
-```bash
-pip install "arcadia-microscopy-tools[segmentation] @ git+https://github.com/Arcadia-Science/arcadia-microscopy-tools.git"
-```
+- `[segmentation]` - Cellpose for cell/particle segmentation
+- `[compute]` - Modal for cloud-based processing
+- `[all]` - All optional dependencies
 
-**Cloud compute** (includes Modal for cloud-based processing):
 ```bash
-pip install "arcadia-microscopy-tools[compute] @ git+https://github.com/Arcadia-Science/arcadia-microscopy-tools.git"
-```
+# Example: install with segmentation support
+pip install "arcadia-microscopy-tools[segmentation]"
 
-**All optional dependencies**:
-```bash
-pip install "arcadia-microscopy-tools[all] @ git+https://github.com/Arcadia-Science/arcadia-microscopy-tools.git"
-```
-
-You can also combine multiple extras:
-```bash
-pip install "arcadia-microscopy-tools[segmentation,compute] @ git+https://github.com/Arcadia-Science/arcadia-microscopy-tools.git"
+# Or install all optional dependencies
+pip install "arcadia-microscopy-tools[all]"
 ```
 
 ## Usage
