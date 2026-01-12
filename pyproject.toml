@@ -16,13 +16,12 @@ dependencies = [
     "nd2>=0.10.3",
     "numpy>=2.4",
     "scikit-image>=0.25.2",
-    "scikit-learn>=1.7.1",
-    "torch>=2.7.1",
 ]
 
 [project.optional-dependencies]
 segmentation = [
     "cellpose>=4.0.6",
+    "torch>=2.7.1",
 ]
 compute = [
     "modal",
