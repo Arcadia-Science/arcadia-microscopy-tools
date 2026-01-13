@@ -103,10 +103,10 @@ class SegmentationMask:
 
     Args:
         mask_image: 2D integer or boolean array where each cell has a unique label (background=0).
-        intensity_image_dict: Optional dict mapping channels to 2D intensity arrays.
+        intensity_image_dict: Optional dict mapping Channel instances to 2D intensity arrays.
             Each intensity array must have the same shape as mask_image. Channel names will be used
             as suffixes for intensity properties. Example:
-                {Channel.DAPI: array, Channel.FITC: array}
+                {DAPI: array, FITC: array}
         remove_edge_cells: Whether to remove cells touching image borders. Defaults to True.
         outline_extractor: Outline extraction method ("cellpose" or "skimage").
             Defaults to "cellpose".
@@ -200,8 +200,8 @@ class SegmentationMask:
         properties (mean, max, min intensity) for each channel if intensity images are provided.
 
         For multichannel intensity images, property names are suffixed with the channel name:
-        - Channel.DAPI: "intensity_mean_DAPI"
-        - Channel.FITC: "intensity_mean_FITC"
+        - DAPI: "intensity_mean_DAPI"
+        - FITC: "intensity_mean_FITC"
 
         Returns:
             Dictionary mapping property names to arrays of values (one per cell).
