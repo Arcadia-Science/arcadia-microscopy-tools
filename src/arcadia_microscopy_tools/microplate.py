@@ -71,6 +71,57 @@ class MicroplateLayout:
 
         return cls(layout)
 
+    def display(self, max_width: int = 12, empty: str = "-") -> str:
+        """Display the plate layout as a grid table.
+
+        Args:
+            max_width: Maximum width for each cell (sample names will be truncated).
+            empty: String to display for empty/missing wells.
+
+        Returns:
+            Formatted string representation of the plate grid.
+        """
+        rows = self.rows
+        columns = self.columns
+
+        if not rows or not columns:
+            return "Empty plate layout"
+
+        # Create a lookup dictionary for quick access
+        well_map = {(well.row, well.column): well.sample for well in self.layout}
+
+        # Calculate column width (at least 3 for row label, max_width for content)
+        col_width = min(max_width, max(len(str(c)) for c in columns))
+        col_width = max(col_width, len(empty))
+
+        # Adjust based on actual sample name lengths
+        if well_map:
+            max_sample_len = max(len(sample) for sample in well_map.values() if sample)
+            col_width = max(col_width, min(max_width, max_sample_len))
+
+        # Build the header row with column numbers
+        header = "   " + " ".join(f"{col:>{col_width}}" for col in columns)
+        separator = "   " + " ".join("-" * col_width for _ in columns)
+
+        lines = [header, separator]
+
+        # Build each row
+        for row in rows:
+            row_cells = []
+            for col in columns:
+                sample = well_map.get((row, col), "")
+                if not sample:
+                    cell_value = empty
+                else:
+                    # Truncate if too long
+                    cell_value = sample[:col_width] if len(sample) > col_width else sample
+                row_cells.append(f"{cell_value:>{col_width}}")
+
+            row_line = f"{row}| " + " ".join(row_cells)
+            lines.append(row_line)
+
+        return "\n".join(lines)
+
 
 @dataclass
 class Well:
