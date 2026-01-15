@@ -14,24 +14,48 @@ class MicroplateLayout:
         layout: Sequence of Well objects representing the plate configuration.
     """
 
+    # CSV column name constants
+    WELL_ID_KEY = "well_id"
+    SAMPLE_KEY = "sample"
+
     layout: Sequence[Well]
+    _well_lookup: dict[str, Well] = field(default_factory=dict, init=False, repr=False)
+    _rows: list[str] = field(default_factory=list, init=False, repr=False)
+    _columns: list[int] = field(default_factory=list, init=False, repr=False)
+    _well_ids: list[str] = field(default_factory=list, init=False, repr=False)
+
+    def __post_init__(self):
+        """Validate and initialize the layout."""
+        # Check for duplicate well IDs
+        well_ids = [well.id for well in self.layout]
+        duplicates = [well_id for well_id in set(well_ids) if well_ids.count(well_id) > 1]
+        if duplicates:
+            raise ValueError(f"Duplicate well IDs found: {', '.join(sorted(duplicates))}")
+
+        # Build lookup cache for efficient access
+        self._well_lookup = {well.id: well for well in self.layout}
+
+        # Cache property values
+        self._rows = sorted({well.row for well in self.layout})
+        self._columns = sorted({well.column for well in self.layout})
+        self._well_ids = sorted({well.id for well in self.layout})
 
     @property
-    def rows(self) -> list:
+    def rows(self) -> list[str]:
         """Unique rows in the plate layout."""
-        return sorted({well.row for well in self.layout})
+        return self._rows
 
     @property
-    def columns(self) -> list:
+    def columns(self) -> list[int]:
         """Unique columns in the plate layout."""
-        return sorted({well.column for well in self.layout})
+        return self._columns
 
     @property
-    def well_ids(self):
+    def well_ids(self) -> list[str]:
         """Return a list of all well IDs in the layout."""
-        return sorted({well.id for well in self.layout})
+        return self._well_ids
 
-    def __getitem__(self, well_id: str):
+    def __getitem__(self, well_id: str) -> Well:
         """Get a well from the layout by its ID.
 
         This method allows accessing wells using dictionary-style notation:
@@ -46,11 +70,28 @@ class MicroplateLayout:
         Raises:
             KeyError: If the well ID doesn't exist in the layout
         """
-        for well in self.layout:
-            if well.id == well_id:
-                return well
+        if well_id not in self._well_lookup:
+            raise KeyError(f"Well ID '{well_id}' not found in plate layout.")
+        return self._well_lookup[well_id]
 
-        raise KeyError(f"Well ID '{well_id}' not found in plate layout.")
+    def __len__(self) -> int:
+        """Return the number of wells in the layout."""
+        return len(self.layout)
+
+    def __contains__(self, well_id: str) -> bool:
+        """Check if a well ID exists in the layout.
+
+        Args:
+            well_id: The well ID to check (e.g., "A01", "H12")
+
+        Returns:
+            True if the well exists, False otherwise
+        """
+        return well_id in self._well_lookup
+
+    def __iter__(self):
+        """Iterate over wells in the layout."""
+        return iter(self.layout)
 
     @classmethod
     def from_csv(cls, csv_path: Path) -> MicroplateLayout:
@@ -96,8 +137,10 @@ class MicroplateLayout:
 
         # Adjust based on actual sample name lengths
         if well_map:
-            max_sample_len = max(len(sample) for sample in well_map.values() if sample)
-            col_width = max(col_width, min(max_width, max_sample_len))
+            non_empty_samples = [sample for sample in well_map.values() if sample]
+            if non_empty_samples:
+                max_sample_len = max(len(sample) for sample in non_empty_samples)
+                col_width = max(col_width, min(max_width, max_sample_len))
 
         # Build the header row with column numbers
         header = "   " + " ".join(f"{col:>{col_width}}" for col in columns)
@@ -175,13 +218,18 @@ class Well:
         return str(self)
 
     @classmethod
-    def from_string(cls, well_id: str, sample: str, properties: Mapping[str, Any]) -> Well:
+    def from_string(
+        cls,
+        well_id: str,
+        sample: str = "",
+        properties: Mapping[str, Any] | None = None,
+    ) -> Well:
         """Create a Well from a well ID string.
 
         Args:
             well_id: Well identifier (e.g., 'A1', 'B12').
-            sample: Sample identifier or name.
-            properties: Additional metadata for this well.
+            sample: Sample identifier or name. Defaults to empty string.
+            properties: Additional metadata for this well. Defaults to empty dict.
 
         Returns:
             Well instance parsed from the well ID string.
@@ -198,6 +246,9 @@ class Well:
         except ValueError as e:
             raise ValueError(f"Could not parse column number from '{well_id}'") from e
 
+        if properties is None:
+            properties = {}
+
         return cls(row, column, sample, properties)
 
     @classmethod
@@ -213,11 +264,15 @@ class Well:
         Raises:
             ValueError: If 'well_id' key is missing from the dictionary.
         """
-        if "well_id" not in data.keys():
-            raise ValueError("Dictionary must contain 'well_id' key")
-        well_id = data["well_id"]
+        if MicroplateLayout.WELL_ID_KEY not in data.keys():
+            raise ValueError(f"Dictionary must contain '{MicroplateLayout.WELL_ID_KEY}' key")
+        well_id = data[MicroplateLayout.WELL_ID_KEY]
 
-        sample = data.get("sample", "")
-        properties = {k: v for k, v in data.items() if k not in ["well_id", "sample"]}
+        sample = data.get(MicroplateLayout.SAMPLE_KEY, "")
+        properties = {
+            k: v
+            for k, v in data.items()
+            if k not in [MicroplateLayout.WELL_ID_KEY, MicroplateLayout.SAMPLE_KEY]
+        }
 
         return cls.from_string(well_id, sample, properties)
