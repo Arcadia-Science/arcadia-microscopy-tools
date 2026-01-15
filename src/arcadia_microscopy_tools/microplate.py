@@ -16,6 +16,42 @@ class MicroplateLayout:
 
     layout: Sequence[Well]
 
+    @property
+    def rows(self) -> list:
+        """Unique rows in the plate layout."""
+        return sorted({well.row for well in self.layout})
+
+    @property
+    def columns(self) -> list:
+        """Unique columns in the plate layout."""
+        return sorted({well.column for well in self.layout})
+
+    @property
+    def well_ids(self):
+        """Return a list of all well IDs in the layout."""
+        return sorted({well.id for well in self.layout})
+
+    def __getitem__(self, well_id: str):
+        """Get a well from the layout by its ID.
+
+        This method allows accessing wells using dictionary-style notation:
+        plate["A01"] instead of searching through the layout list.
+
+        Args:
+            well_id: The well ID to retrieve (e.g., "A01", "H12")
+
+        Returns:
+            The Well object corresponding to the given ID
+
+        Raises:
+            KeyError: If the well ID doesn't exist in the layout
+        """
+        for well in self.layout:
+            if well.id == well_id:
+                return well
+
+        raise KeyError(f"Well ID '{well_id}' not found in plate layout.")
+
     @classmethod
     def from_csv(cls, csv_path: Path) -> MicroplateLayout:
         """Load a microplate layout from a CSV file.
@@ -42,13 +78,13 @@ class Well:
 
     Attributes:
         row: Single uppercase letter (A-Z) indicating the row.
-        col: Integer column number.
+        column: Integer column number.
         sample: Sample identifier or name in this well.
         properties: Additional metadata or properties for this well.
     """
 
     row: str
-    col: int
+    column: int
     sample: str
     properties: Mapping[str, Any] = field(default_factory=dict)
 
@@ -62,23 +98,23 @@ class Well:
             raise ValueError("Row must be a single uppercase letter (A-Z)")
 
         # Ensure column is an integer
-        if not isinstance(self.col, int):
+        if not isinstance(self.column, int):
             try:
-                self.col = int(self.col)
+                self.column = int(self.column)
             except (ValueError, TypeError) as error:
                 raise TypeError(
-                    f"Column must be convertible to an integer, got {type(self.col)}"
+                    f"Column must be convertible to an integer, got {type(self.column)}"
                 ) from error
 
     def __str__(self) -> str:
         """Return string representation of the well with the column integer padded with a zero."""
-        return f"{self.row}{self.col:02d}"
+        return f"{self.row}{self.column:02d}"
 
     def __repr__(self) -> str:
         """Return a string that could be used to recreate this object."""
         return (
             f"Well(row='{self.row}', "
-            f"column={self.col}, "
+            f"column={self.column}, "
             f"sample='{self.sample}', "
             f"properties={repr(self.properties)})"
         )
@@ -107,11 +143,11 @@ class Well:
 
         row = well_id[0].upper()
         try:
-            col = int(well_id[1:])
+            column = int(well_id[1:])
         except ValueError as e:
             raise ValueError(f"Could not parse column number from '{well_id}'") from e
 
-        return cls(row, col, sample, properties)
+        return cls(row, column, sample, properties)
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Well:
