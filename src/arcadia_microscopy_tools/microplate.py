@@ -61,28 +61,29 @@ class Well:
     @classmethod
     def from_string(
         cls,
-        well_id: str,
+        id: str,
         sample: str = "",
         properties: Mapping[str, Any] | None = None,
     ) -> Well:
         """Create a Well from a well ID string.
 
         Args:
-            well_id: Well identifier (e.g., 'A1', 'B12').
+            id: Well identifier (e.g., 'A1', 'B12').
             sample: Sample identifier or name. Defaults to empty string.
             properties: Additional metadata for this well. Defaults to empty dict.
 
         Returns:
             Well instance parsed from the well ID string.
         """
-        return cls(well_id, sample, properties or {})
+        return cls(id, sample, properties or {})
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Well:
-        """Create a Well from a dictionary.
+        """Create a Well from a dictionary (e.g., from CSV row).
 
         Args:
             data: Dictionary containing 'well_id' key and optional 'sample' and property keys.
+                  CSV files should have a 'well_id' column.
 
         Returns:
             Well instance created from the dictionary.
@@ -93,11 +94,11 @@ class Well:
         if "well_id" not in data:
             raise ValueError("Dictionary must contain 'well_id' key")
 
-        well_id = data["well_id"]
+        id = data["well_id"]
         sample = data.get("sample", "")
         properties = {k: v for k, v in data.items() if k not in ("well_id", "sample")}
 
-        return cls(well_id, sample, properties)
+        return cls(id, sample, properties)
 
 
 @dataclass(frozen=True)
