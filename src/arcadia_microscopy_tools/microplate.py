@@ -1,9 +1,10 @@
 from __future__ import annotations
-import csv
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+import pandas as pd
 
 
 @dataclass(frozen=True)
@@ -83,7 +84,7 @@ class Well:
 
         Args:
             data: Dictionary containing 'well_id' key and optional 'sample' and property keys.
-                  CSV files should have a 'well_id' column.
+                CSV files should have a 'well_id' column.
 
         Returns:
             Well instance created from the dictionary.
@@ -174,62 +175,59 @@ class MicroplateLayout:
         return iter(self.wells.values())
 
     @classmethod
-    def from_csv(cls, csv_path: Path) -> MicroplateLayout:
-        """Load a microplate layout from a CSV file.
+    def from_csv(cls, csv_path: Path, **kwargs) -> MicroplateLayout:
+        """Load a microplate layout from a CSV file using pandas.
 
         Args:
             csv_path: Path to CSV file containing well_id, sample, and optional property columns.
+            **kwargs: Additional arguments passed to pd.read_csv (e.g., encoding, dtype).
 
         Returns:
             MicroplateLayout instance with wells parsed from the CSV.
         """
+        df = pd.read_csv(csv_path, **kwargs)
         wells = {}
-        with open(csv_path, newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                well = Well.from_dict(row)
-                wells[well.id] = well
+        for _, row in df.iterrows():
+            well = Well.from_dict(row.to_dict())
+            wells[well.id] = well
 
         return cls(wells)
 
-    def display(self, max_width: int = 12, empty: str = "-") -> str:
-        """Display the plate layout as a grid table.
-
-        Args:
-            max_width: Maximum width for each cell (sample names will be truncated).
-            empty: String to display for empty/missing wells.
+    def to_dataframe(self) -> pd.DataFrame:
+        """Convert plate layout to a pandas DataFrame with all well data.
 
         Returns:
-            Formatted string representation of the plate grid.
+            DataFrame with columns: well_id, row, column, sample, and any additional properties.
+            One row per well in the layout.
         """
-        rows = self.rows
-        columns = self.columns
+        if not self.wells:
+            return pd.DataFrame()
 
-        if not rows or not columns:
+        data = []
+        for well in self.wells.values():
+            row_data = {
+                "well_id": well.id,
+                "row": well.row,
+                "column": well.column,
+                "sample": well.sample,
+            }
+            # Add any additional properties
+            row_data.update(well.properties)
+            data.append(row_data)
+
+        return pd.DataFrame(data)
+
+    def display(self) -> str:
+        """Display the plate layout as a formatted grid table.
+
+        Returns:
+            String representation of the plate as a pivot table with rows and columns.
+        """
+        df = self.to_dataframe()
+        if df.empty:
             return "Empty plate layout"
 
-        # Build well lookup by (row, column)
-        well_map = {(well.row, well.column): well.sample for well in self.wells.values()}
-
-        # Calculate column width
-        samples = [s for s in well_map.values() if s]
-        max_sample = max((len(s) for s in samples), default=0)
-        col_width = max(
-            len(empty), min(max_width, max_sample), max((len(str(c)) for c in columns), default=0)
-        )
-
-        # Header
-        header = "   " + " ".join(f"{col:>{col_width}}" for col in columns)
-        separator = "   " + " ".join("-" * col_width for _ in columns)
-        lines = [header, separator]
-
-        # Rows
-        for row in rows:
-            cells = []
-            for col in columns:
-                sample = well_map.get((row, col), "")
-                display = sample[:col_width] if sample else empty
-                cells.append(f"{display:>{col_width}}")
-            lines.append(f"{row}| " + " ".join(cells))
-
-        return "\n".join(lines)
+        # Create pivot table: rows as index, columns as columns, sample as values
+        pivot = df.pivot(index="row", columns="column", values="sample")
+        pivot = pivot.fillna("-")
+        return pivot.to_string()
