@@ -105,11 +105,6 @@ class MicroplateLayout:
                 raise ValueError(f"Well ID mismatch: key '{well_id}' != well.id '{well.id}'")
 
     @property
-    def wells(self) -> list[Well]:
-        """Return a sorted list of all wells in the layout."""
-        return sorted(self.layout.values(), key=lambda well: well.id)
-
-    @property
     def rows(self) -> list[str]:
         """Unique rows in the plate layout."""
         return sorted({well.row for well in self.layout.values()})
@@ -123,6 +118,11 @@ class MicroplateLayout:
     def well_ids(self) -> list[str]:
         """Return a list of all well IDs in the layout."""
         return sorted(self.layout.keys())
+
+    @property
+    def wells(self) -> list[Well]:
+        """Return a sorted list of all wells in the layout."""
+        return sorted(self.layout.values(), key=lambda well: well.id)
 
     def __getitem__(self, well_id: str) -> Well:
         """Get a well by its ID.
