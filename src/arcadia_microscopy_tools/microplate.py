@@ -1,5 +1,5 @@
 from __future__ import annotations
-from collections.abc import Mapping
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -19,7 +19,7 @@ class Well:
 
     id: str
     sample: str = ""
-    properties: Mapping[str, Any] = field(default_factory=dict)
+    properties: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         """Validate and normalize the well ID."""
@@ -60,7 +60,7 @@ class Well:
         return f"Well(id='{self.id}', sample='{self.sample}'{props})"
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> Well:
+    def from_dict(cls, data: dict[str, Any]) -> Well:
         """Create a Well from a dictionary (e.g., from CSV row).
 
         Args:
@@ -87,22 +87,28 @@ class Well:
 class MicroplateLayout:
     """Representation of a microwell plate layout.
 
-    Attributes:
-        layout: Mapping of well IDs to Well objects.
+    Args:
+        wells: Sequence of Well objects (converted to dict internally for efficient lookup).
     """
 
-    layout: Mapping[str, Well]
+    wells: Sequence[Well]
+    _layout: dict[str, Well] = field(init=False, repr=False)
 
     def __post_init__(self):
-        """Validate the layout."""
-        # Convert to dict if not already
-        if not isinstance(self.layout, dict):
-            object.__setattr__(self, "layout", dict(self.layout))
+        """Build internal dict from wells and validate for duplicates."""
+        well_dict = {}
+        for well in self.wells:
+            if well.id in well_dict:
+                raise ValueError(f"Duplicate well ID: '{well.id}'")
+            well_dict[well.id] = well
 
-        # Verify well IDs match keys
-        for well_id, well in self.layout.items():
-            if well.id != well_id:
-                raise ValueError(f"Well ID mismatch: key '{well_id}' != well.id '{well.id}'")
+        # Store as dict internally for efficient lookup
+        object.__setattr__(self, "_layout", well_dict)
+
+    @property
+    def layout(self) -> dict[str, Well]:
+        """Return the mapping of well IDs to Well objects."""
+        return self._layout
 
     @property
     def rows(self) -> list[str]:
@@ -118,11 +124,6 @@ class MicroplateLayout:
     def well_ids(self) -> list[str]:
         """Return a list of all well IDs in the layout."""
         return sorted(self.layout.keys())
-
-    @property
-    def wells(self) -> list[Well]:
-        """Return a sorted list of all wells in the layout."""
-        return sorted(self.layout.values(), key=lambda well: well.id)
 
     def __getitem__(self, well_id: str) -> Well:
         """Get a well by its ID.
@@ -172,12 +173,12 @@ class MicroplateLayout:
             MicroplateLayout instance with wells parsed from the CSV.
         """
         df = pd.read_csv(csv_path, **kwargs)
-        layout = {}
+        wells = []
         for _, row in df.iterrows():
             well = Well.from_dict(row.to_dict())
-            layout[well.id] = well
+            wells.append(well)
 
-        return cls(layout)
+        return cls(wells)
 
     def to_dataframe(self) -> pd.DataFrame:
         """Convert plate layout to a pandas DataFrame with all well data.
