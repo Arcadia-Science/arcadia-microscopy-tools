@@ -34,6 +34,8 @@ class Well:
             column = int(self.id[1:])
         except ValueError as e:
             raise ValueError(f"Could not parse column number from '{self.id}'") from e
+
+        # Support up to 48 columns
         if not 1 <= column <= 48:
             raise ValueError(f"Column must be 1-48, got {column}")
 
@@ -73,12 +75,15 @@ class Well:
             Well instance created from the dictionary.
 
         Raises:
-            ValueError: If 'well_id' key is missing from the dictionary.
+            ValueError: If 'well_id' key is missing from the dictionary or is not a string.
         """
         if "well_id" not in data:
             raise ValueError("Dictionary must contain 'well_id' key")
 
         well_id = data["well_id"]
+        if not isinstance(well_id, str):
+            raise ValueError(f"well_id must be a string, got {type(well_id).__name__}")
+
         sample = data.get("sample", "")
         properties = {k: v for k, v in data.items() if k not in ("well_id", "sample")}
 
@@ -131,7 +136,8 @@ class MicroplateLayout:
         """Get a well by its ID.
 
         Args:
-            well_id: The well ID to retrieve (e.g., "A01", "H12")
+            well_id: The well ID to retrieve (e.g., "A01", "A1", "H12")
+                Non-normalized IDs (e.g., "A1") are automatically normalized.
 
         Returns:
             The Well object corresponding to the given ID
@@ -139,8 +145,14 @@ class MicroplateLayout:
         Raises:
             KeyError: If the well ID doesn't exist in the layout
         """
+        # Normalize the well_id before lookup to support both "A1" and "A01" formats
         try:
-            return self.layout[well_id]
+            normalized = Well(well_id).id
+        except ValueError as e:
+            raise KeyError(f"Invalid well ID '{well_id}': {e}") from None
+
+        try:
+            return self.layout[normalized]
         except KeyError:
             raise KeyError(f"Well ID '{well_id}' not found in plate layout.") from None
 
@@ -152,12 +164,19 @@ class MicroplateLayout:
         """Check if a well ID exists in the layout.
 
         Args:
-            well_id: The well ID to check (e.g., "A01", "H12")
+            well_id: The well ID to check (e.g., "A01", "A1", "H12")
+                Non-normalized IDs (e.g., "A1") are automatically normalized.
 
         Returns:
             True if the well exists, False otherwise
         """
-        return well_id in self.layout
+        # Normalize the well_id before checking to support both "A1" and "A01" formats
+        try:
+            normalized = Well(well_id).id
+            return normalized in self.layout
+        except ValueError:
+            # Invalid well ID format
+            return False
 
     def __iter__(self) -> Iterator[Well]:
         """Iterate over wells in the layout."""
