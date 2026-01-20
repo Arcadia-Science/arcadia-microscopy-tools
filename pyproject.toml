@@ -15,13 +15,14 @@ dependencies = [
     "liffile>=2025.12.12",
     "nd2>=0.10.3",
     "numpy>=2.4",
+    "pandas>=2.3.3",
     "scikit-image>=0.25.2",
+    "torch>=2.7.1",
 ]
 
 [project.optional-dependencies]
 segmentation = [
     "cellpose>=4.0.6",
-    "torch>=2.7.1",
 ]
 compute = [
     "modal",
