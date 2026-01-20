@@ -1,5 +1,5 @@
 from __future__ import annotations
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -34,6 +34,8 @@ class Well:
             column = int(self.id[1:])
         except ValueError as e:
             raise ValueError(f"Could not parse column number from '{self.id}'") from e
+        if not 1 <= column <= 48:
+            raise ValueError(f"Column must be 1-48, got {column}")
 
         # Normalize to capital letter, zero-padded format (a1 -> A01)
         normalized = f"{row}{column:02d}"
@@ -76,11 +78,11 @@ class Well:
         if "well_id" not in data:
             raise ValueError("Dictionary must contain 'well_id' key")
 
-        id = data["well_id"]
+        well_id = data["well_id"]
         sample = data.get("sample", "")
         properties = {k: v for k, v in data.items() if k not in ("well_id", "sample")}
 
-        return cls(id, sample, properties)
+        return cls(well_id, sample, properties)
 
 
 @dataclass(frozen=True)
@@ -157,7 +159,7 @@ class MicroplateLayout:
         """
         return well_id in self.layout
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Well]:
         """Iterate over wells in the layout."""
         return iter(self.layout.values())
 
@@ -171,12 +173,22 @@ class MicroplateLayout:
 
         Returns:
             MicroplateLayout instance with wells parsed from the CSV.
+
+        Raises:
+            ValueError: If CSV is empty or missing required 'well_id' column.
         """
         df = pd.read_csv(csv_path, **kwargs)
-        wells = []
-        for _, row in df.iterrows():
-            well = Well.from_dict(row.to_dict())
-            wells.append(well)
+
+        if df.empty:
+            raise ValueError(f"CSV file '{csv_path}' is empty")
+
+        if "well_id" not in df.columns:
+            raise ValueError(
+                f"CSV file '{csv_path}' missing required 'well_id' column. "
+                f"Found columns: {list(df.columns)}"
+            )
+
+        wells = [Well.from_dict(row) for row in df.to_dict("records")]
 
         return cls(wells)
 
