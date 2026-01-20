@@ -35,7 +35,7 @@ class Well:
         except ValueError as e:
             raise ValueError(f"Could not parse column number from '{self.id}'") from e
 
-        # Normalize to zero-padded format (A1 -> A01)
+        # Normalize to capital letter, zero-padded format (a1 -> A01)
         normalized = f"{row}{column:02d}"
         if normalized != self.id:
             object.__setattr__(self, "id", normalized)
@@ -58,25 +58,6 @@ class Well:
         """Return a string that could be used to recreate this object."""
         props = f", properties={self.properties!r}" if self.properties else ""
         return f"Well(id='{self.id}', sample='{self.sample}'{props})"
-
-    @classmethod
-    def from_string(
-        cls,
-        id: str,
-        sample: str = "",
-        properties: Mapping[str, Any] | None = None,
-    ) -> Well:
-        """Create a Well from a well ID string.
-
-        Args:
-            id: Well identifier (e.g., 'A1', 'B12').
-            sample: Sample identifier or name. Defaults to empty string.
-            properties: Additional metadata for this well. Defaults to empty dict.
-
-        Returns:
-            Well instance parsed from the well ID string.
-        """
-        return cls(id, sample, properties or {})
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Well:
@@ -107,36 +88,41 @@ class MicroplateLayout:
     """Representation of a microwell plate layout.
 
     Attributes:
-        wells: Mapping of well IDs to Well objects.
+        layout: Mapping of well IDs to Well objects.
     """
 
-    wells: Mapping[str, Well]
+    layout: Mapping[str, Well]
 
     def __post_init__(self):
         """Validate the layout."""
         # Convert to dict if not already
-        if not isinstance(self.wells, dict):
-            object.__setattr__(self, "wells", dict(self.wells))
+        if not isinstance(self.layout, dict):
+            object.__setattr__(self, "layout", dict(self.layout))
 
         # Verify well IDs match keys
-        for well_id, well in self.wells.items():
+        for well_id, well in self.layout.items():
             if well.id != well_id:
                 raise ValueError(f"Well ID mismatch: key '{well_id}' != well.id '{well.id}'")
 
     @property
+    def wells(self) -> list[Well]:
+        """Return a sorted list of all wells in the layout."""
+        return sorted(self.layout.values(), key=lambda well: well.id)
+
+    @property
     def rows(self) -> list[str]:
         """Unique rows in the plate layout."""
-        return sorted({well.row for well in self.wells.values()})
+        return sorted({well.row for well in self.layout.values()})
 
     @property
     def columns(self) -> list[int]:
         """Unique columns in the plate layout."""
-        return sorted({well.column for well in self.wells.values()})
+        return sorted({well.column for well in self.layout.values()})
 
     @property
     def well_ids(self) -> list[str]:
         """Return a list of all well IDs in the layout."""
-        return sorted(self.wells.keys())
+        return sorted(self.layout.keys())
 
     def __getitem__(self, well_id: str) -> Well:
         """Get a well by its ID.
@@ -151,13 +137,13 @@ class MicroplateLayout:
             KeyError: If the well ID doesn't exist in the layout
         """
         try:
-            return self.wells[well_id]
+            return self.layout[well_id]
         except KeyError:
             raise KeyError(f"Well ID '{well_id}' not found in plate layout.") from None
 
     def __len__(self) -> int:
         """Return the number of wells in the layout."""
-        return len(self.wells)
+        return len(self.layout)
 
     def __contains__(self, well_id: str) -> bool:
         """Check if a well ID exists in the layout.
@@ -168,11 +154,11 @@ class MicroplateLayout:
         Returns:
             True if the well exists, False otherwise
         """
-        return well_id in self.wells
+        return well_id in self.layout
 
     def __iter__(self):
         """Iterate over wells in the layout."""
-        return iter(self.wells.values())
+        return iter(self.layout.values())
 
     @classmethod
     def from_csv(cls, csv_path: Path, **kwargs) -> MicroplateLayout:
@@ -186,12 +172,12 @@ class MicroplateLayout:
             MicroplateLayout instance with wells parsed from the CSV.
         """
         df = pd.read_csv(csv_path, **kwargs)
-        wells = {}
+        layout = {}
         for _, row in df.iterrows():
             well = Well.from_dict(row.to_dict())
-            wells[well.id] = well
+            layout[well.id] = well
 
-        return cls(wells)
+        return cls(layout)
 
     def to_dataframe(self) -> pd.DataFrame:
         """Convert plate layout to a pandas DataFrame with all well data.
@@ -200,11 +186,11 @@ class MicroplateLayout:
             DataFrame with columns: well_id, row, column, sample, and any additional properties.
             One row per well in the layout.
         """
-        if not self.wells:
+        if not self.layout:
             return pd.DataFrame()
 
         data = []
-        for well in self.wells.values():
+        for well in self.layout.values():
             row_data = {
                 "well_id": well.id,
                 "row": well.row,
