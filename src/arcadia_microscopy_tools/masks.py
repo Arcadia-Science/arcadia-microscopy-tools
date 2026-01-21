@@ -66,7 +66,7 @@ def _extract_outlines_cellpose(label_image: Int64Array) -> list[FloatArray]:
         label_image: 2D integer array where each cell has a unique label.
 
     Returns:
-        List of arrays, one per cell, containing outline coordinates.
+        List of arrays, one per cell, containing outline coordinates in (y, x) format.
     """
     return outlines_list(label_image, multiprocessing=False)
 
@@ -78,7 +78,7 @@ def _extract_outlines_skimage(label_image: Int64Array) -> list[FloatArray]:
         label_image: 2D integer array where each cell has a unique label.
 
     Returns:
-        List of arrays, one per cell, containing outline coordinates.
+        List of arrays, one per cell, containing outline coordinates in (y, x) format.
         Empty arrays are included for cells where no contours are found.
     """
     # Get unique cell IDs (excluding background)
@@ -91,6 +91,8 @@ def _extract_outlines_skimage(label_image: Int64Array) -> list[FloatArray]:
         contours = ski.measure.find_contours(cell_mask, level=0.5)
         if contours:
             main_contour = max(contours, key=len)
+            # Flip from (x, y) to (y, x) to match cellpose format
+            main_contour = main_contour[:, [1, 0]]
             outlines.append(main_contour)
         else:
             # Include empty array to maintain alignment with cell labels
@@ -183,7 +185,7 @@ class SegmentationMask:
         """Extract cell outlines using the configured outline extractor.
 
         Returns:
-            List of arrays, one per cell, containing outline coordinates.
+            List of arrays, one per cell, containing outline coordinates in (y, x) format.
             Returns empty list if no cells found.
         """
         if self.num_cells == 0:
