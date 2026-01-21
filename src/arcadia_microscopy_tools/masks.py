@@ -1,5 +1,6 @@
 from __future__ import annotations
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Literal
@@ -9,24 +10,21 @@ import skimage as ski
 from cellpose.utils import outlines_list
 
 from .channels import Channel
-from .typing import BoolArray, Int64Array, ScalarArray
-
-OutlineExtractorMethod = Literal["cellpose", "skimage"]
+from .typing import BoolArray, FloatArray, Int64Array, ScalarArray, UInt16Array
 
 DEFAULT_CELL_PROPERTY_NAMES = [
     "label",
     "centroid",
+    "volume",
     "area",
     "area_convex",
     "perimeter",
     "eccentricity",
+    "circularity",
     "solidity",
     "axis_major_length",
     "axis_minor_length",
     "orientation",
-    "moments_hu",
-    "inertia_tensor",
-    "inertia_tensor_eigvals",
 ]
 
 DEFAULT_INTENSITY_PROPERTY_NAMES = [
@@ -36,62 +34,70 @@ DEFAULT_INTENSITY_PROPERTY_NAMES = [
     "intensity_std",
 ]
 
-
-class CellposeOutlineExtractor:
-    """Extract cell outlines using Cellpose's outlines_list function."""
-
-    def extract_outlines(self, label_image: Int64Array) -> list[ScalarArray]:
-        """Extract outlines from label image."""
-        return outlines_list(label_image, multiprocessing=False)
+OutlineExtractorMethod = Literal["cellpose", "skimage"]
 
 
-class SkimageOutlineExtractor:
-    """Extract cell outlines using scikit-image's find_contours."""
-
-    def extract_outlines(self, label_image: Int64Array) -> list[ScalarArray]:
-        """Extract outlines from label image."""
-        # Get unique cell IDs (excluding background)
-        unique_labels = np.unique(label_image)
-        unique_labels = unique_labels[unique_labels > 0]
-
-        outlines = []
-        for cell_id in unique_labels:
-            cell_mask = (label_image == cell_id).astype(np.uint8)
-            contours = ski.measure.find_contours(cell_mask, level=0.5)
-            if contours:
-                main_contour = max(contours, key=len)
-                outlines.append(main_contour)
-            else:
-                outlines.append(np.array([]))
-        return outlines
-
-
-@dataclass
-class MaskProcessor:
-    """Process segmentation masks by removing edge cells and ensuring consecutive labels.
+def _process_mask(
+    mask_image: BoolArray | Int64Array,
+    remove_edge_cells: bool,
+) -> Int64Array:
+    """Process a mask image by optionally removing edge cells and ensuring consecutive labels.
 
     Args:
+        mask_image: Input mask array where each cell has a unique label.
         remove_edge_cells: Whether to remove cells touching image borders.
+
+    Returns:
+        Processed label image with consecutive labels starting from 1.
     """
+    label_image = mask_image
+    if remove_edge_cells:
+        label_image = ski.segmentation.clear_border(label_image)
 
-    remove_edge_cells: bool = True
+    # Ensure consecutive labels
+    label_image = ski.measure.label(label_image).astype(np.int64)  # type: ignore
+    return label_image
 
-    def process_mask(self, mask_image: ScalarArray) -> Int64Array:
-        """Process a mask image by optionally removing edge cells and ensuring consecutive labels.
 
-        Args:
-            mask_image: Input mask array where each cell has a unique label.
+def _extract_outlines_cellpose(label_image: Int64Array) -> list[FloatArray]:
+    """Extract cell outlines using Cellpose's outlines_list function.
 
-        Returns:
-            Processed label image with consecutive labels starting from 1.
-        """
-        _label_image = mask_image.copy()
-        if self.remove_edge_cells:
-            _label_image = ski.segmentation.clear_border(_label_image)
+    Args:
+        label_image: 2D integer array where each cell has a unique label.
 
-        # Ensure consecutive labels
-        _label_image = ski.measure.label(_label_image).astype(np.int64)  # type: ignore
-        return _label_image
+    Returns:
+        List of arrays, one per cell, containing outline coordinates in (y, x) format.
+    """
+    return outlines_list(label_image, multiprocessing=False)
+
+
+def _extract_outlines_skimage(label_image: Int64Array) -> list[FloatArray]:
+    """Extract cell outlines using scikit-image's find_contours.
+
+    Args:
+        label_image: 2D integer array where each cell has a unique label.
+
+    Returns:
+        List of arrays, one per cell, containing outline coordinates in (y, x) format.
+        Empty arrays are included for cells where no contours are found.
+    """
+    # Get unique cell IDs (excluding background)
+    unique_labels = np.unique(label_image)
+    unique_labels = unique_labels[unique_labels > 0]
+
+    outlines = []
+    for cell_id in unique_labels:
+        cell_mask = (label_image == cell_id).astype(np.uint8)
+        contours = ski.measure.find_contours(cell_mask, level=0.5)
+        if contours:
+            main_contour = max(contours, key=len)
+            # Flip from (x, y) to (y, x) to match cellpose format
+            main_contour = main_contour[:, [1, 0]]
+            outlines.append(main_contour)
+        else:
+            # Include empty array to maintain alignment with cell labels
+            outlines.append(np.array([]).reshape(0, 2))
+    return outlines
 
 
 @dataclass
@@ -99,27 +105,29 @@ class SegmentationMask:
     """Container for segmentation mask data and feature extraction.
 
     Args:
-        mask_image: 2D integer array where each cell has a unique label (background=0).
-        intensity_image_dict: Optional dict mapping Channel enums to 2D intensity arrays.
-            Each intensity array must have the same shape as mask_image.
-            Channel names will be used as suffixes for intensity properties.
-            Example: {Channel.DAPI: [M x N], Channel.FITC: [M x N]}
-        remove_edge_cells: Whether to remove cells touching image borders.
+        mask_image: 2D integer or boolean array where each cell has a unique label (background=0).
+        intensity_image_dict: Optional dict mapping Channel instances to 2D intensity arrays.
+            Each intensity array must have the same shape as mask_image. Channel names will be used
+            as suffixes for intensity properties. Example:
+                {DAPI: array, FITC: array}
+        remove_edge_cells: Whether to remove cells touching image borders. Defaults to True.
         outline_extractor: Outline extraction method ("cellpose" or "skimage").
-        property_names: List of property names to compute. If None, uses default property names.
+            Defaults to "cellpose".
+        property_names: List of property names to compute. If None, uses
+            DEFAULT_CELL_PROPERTY_NAMES.
         intensity_property_names: List of intensity property names to compute.
-            If None, uses default intensity properties when intensity_image_dict is provided.
+            If None, uses DEFAULT_INTENSITY_PROPERTY_NAMES when intensity_image_dict is provided.
     """
 
-    mask_image: ScalarArray
-    intensity_image_dict: dict[Channel, ScalarArray] | None = None
+    mask_image: BoolArray | Int64Array
+    intensity_image_dict: Mapping[Channel, UInt16Array] | None = None
     remove_edge_cells: bool = True
     outline_extractor: OutlineExtractorMethod = "cellpose"
     property_names: list[str] | None = field(default=None)
     intensity_property_names: list[str] | None = field(default=None)
 
     def __post_init__(self):
-        """Validate inputs and create processors."""
+        """Validate inputs and set defaults."""
         # Validate mask_image
         if not isinstance(self.mask_image, np.ndarray):
             raise TypeError("mask_image must be a numpy array")
@@ -130,10 +138,8 @@ class SegmentationMask:
 
         # Validate intensity_image dict if provided
         if self.intensity_image_dict is not None:
-            if not isinstance(self.intensity_image_dict, dict):
-                raise TypeError(
-                    "intensity_image_dict must be a dict mapping Channel enums to 2D arrays"
-                )
+            if not isinstance(self.intensity_image_dict, Mapping):
+                raise TypeError("intensity_image_dict must be a Mapping of channels to 2D arrays")
             for channel, intensities in self.intensity_image_dict.items():
                 if not isinstance(intensities, np.ndarray):
                     raise TypeError(f"Intensity image for '{channel.name}' must be a numpy array")
@@ -155,32 +161,40 @@ class SegmentationMask:
             else:
                 self.intensity_property_names = []
 
-        # Create mask processor
-        self._mask_processor = MaskProcessor(remove_edge_cells=self.remove_edge_cells)
-
-        # Create outline extractor
-        if self.outline_extractor == "cellpose":
-            self._outline_extractor = CellposeOutlineExtractor()
-        else:  # Must be "skimage" due to Literal type
-            self._outline_extractor = SkimageOutlineExtractor()
-
     @cached_property
     def label_image(self) -> Int64Array:
-        """Get processed label image with consecutive labels."""
-        return self._mask_processor.process_mask(self.mask_image)
+        """Get processed label image with consecutive labels.
+
+        Returns:
+            2D integer array with consecutive cell labels starting from 1 (background=0).
+            Edge cells removed if remove_edge_cells=True.
+        """
+        return _process_mask(self.mask_image, self.remove_edge_cells)
 
     @cached_property
     def num_cells(self) -> int:
-        """Get the number of cells in the mask."""
+        """Get the number of cells in the mask.
+
+        Returns:
+            Integer count of cells (maximum label value in label_image).
+        """
         return int(self.label_image.max())
 
     @cached_property
-    def cell_outlines(self) -> list[ScalarArray]:
-        """Extract cell outlines using the configured outline extractor."""
+    def cell_outlines(self) -> list[FloatArray]:
+        """Extract cell outlines using the configured outline extractor.
+
+        Returns:
+            List of arrays, one per cell, containing outline coordinates in (y, x) format.
+            Returns empty list if no cells found.
+        """
         if self.num_cells == 0:
             return []
 
-        return self._outline_extractor.extract_outlines(self.label_image)
+        if self.outline_extractor == "cellpose":
+            return _extract_outlines_cellpose(self.label_image)
+        else:  # Must be "skimage" due to Literal type
+            return _extract_outlines_skimage(self.label_image)
 
     @cached_property
     def cell_properties(self) -> dict[str, ScalarArray]:
@@ -190,11 +204,12 @@ class SegmentationMask:
         properties (mean, max, min intensity) for each channel if intensity images are provided.
 
         For multichannel intensity images, property names are suffixed with the channel name:
-        - Channel.DAPI: "intensity_mean_DAPI"
-        - Channel.FITC: "intensity_mean_FITC"
+        - DAPI: "intensity_mean_DAPI"
+        - FITC: "intensity_mean_FITC"
 
         Returns:
             Dictionary mapping property names to arrays of values (one per cell).
+            Returns empty dict if no cells found.
         """
         if self.num_cells == 0:
             empty_props = (
@@ -210,10 +225,17 @@ class SegmentationMask:
             return empty_props
 
         # Extract morphological properties (no intensity image needed)
+        # Only compute extra properties if explicitly requested
+        extra_props = []
+        if self.property_names and "circularity" in self.property_names:
+            extra_props.append(circularity)
+        if self.property_names and "volume" in self.property_names:
+            extra_props.append(volume)
+
         properties = ski.measure.regionprops_table(
             self.label_image,
             properties=self.property_names,
-            extra_properties=[circularity, volume],
+            extra_properties=extra_props,
         )
 
         # Extract intensity properties for each channel
@@ -231,19 +253,13 @@ class SegmentationMask:
         return properties
 
     @cached_property
-    def centroids_yx(self) -> ScalarArray:
+    def centroids_yx(self) -> FloatArray:
         """Get cell centroids as (y, x) coordinates.
-
-        Extracts centroid coordinates from cell properties and returns them as a 2D array
-        where each row represents one cell's centroid in (y, x) format.
 
         Returns:
             Array of shape (num_cells, 2) with centroid coordinates.
             Each row is [y_coordinate, x_coordinate] for one cell.
-            Returns empty array if "centroid" is not included in property_names.
-
-        Note:
-            If "centroid" is not in property_names, issues a warning and returns an empty array.
+            Returns empty (0, 2) array with warning if "centroid" not in property_names.
         """
         if self.property_names and "centroid" not in self.property_names:
             warnings.warn(
@@ -328,7 +344,7 @@ def circularity(region_mask: BoolArray) -> float:
         Circularity value between 0 and 1. Returns 0 if perimeter is zero.
     """
     # regionprops expects a labeled image, so convert the mask (0/1)
-    labeled_mask = region_mask.astype(np.int64, copy=False)
+    labeled_mask = region_mask.astype(np.int64)
 
     # Compute standard region properties on this mask
     props = ski.measure.regionprops(labeled_mask)[0]
@@ -356,7 +372,7 @@ def volume(region_mask: BoolArray) -> float:
         Estimated volume in cubic pixels. Returns 0 if axis lengths cannot be computed.
     """
     # regionprops expects a labeled image, so convert the mask (0/1)
-    labeled_mask = region_mask.astype(np.int64, copy=False)
+    labeled_mask = region_mask.astype(np.int64)
 
     # Compute standard region properties on this mask
     props = ski.measure.regionprops(labeled_mask)[0]
