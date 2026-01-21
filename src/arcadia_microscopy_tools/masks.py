@@ -15,17 +15,16 @@ from .typing import BoolArray, FloatArray, Int64Array, ScalarArray, UInt16Array
 DEFAULT_CELL_PROPERTY_NAMES = [
     "label",
     "centroid",
+    "volume",
     "area",
     "area_convex",
     "perimeter",
     "eccentricity",
+    "circularity",
     "solidity",
     "axis_major_length",
     "axis_minor_length",
     "orientation",
-    "moments_hu",
-    "inertia_tensor",
-    "inertia_tensor_eigvals",
 ]
 
 DEFAULT_INTENSITY_PROPERTY_NAMES = [
@@ -80,6 +79,7 @@ def _extract_outlines_skimage(label_image: Int64Array) -> list[FloatArray]:
 
     Returns:
         List of arrays, one per cell, containing outline coordinates.
+        Empty arrays are included for cells where no contours are found.
     """
     # Get unique cell IDs (excluding background)
     unique_labels = np.unique(label_image)
@@ -93,7 +93,8 @@ def _extract_outlines_skimage(label_image: Int64Array) -> list[FloatArray]:
             main_contour = max(contours, key=len)
             outlines.append(main_contour)
         else:
-            outlines.append(np.array([]))
+            # Include empty array to maintain alignment with cell labels
+            outlines.append(np.array([]).reshape(0, 2))
     return outlines
 
 
@@ -110,9 +111,10 @@ class SegmentationMask:
         remove_edge_cells: Whether to remove cells touching image borders. Defaults to True.
         outline_extractor: Outline extraction method ("cellpose" or "skimage").
             Defaults to "cellpose".
-        property_names: List of property names to compute. If None, uses default property names.
+        property_names: List of property names to compute. If None, uses
+            DEFAULT_CELL_PROPERTY_NAMES.
         intensity_property_names: List of intensity property names to compute.
-            If None, uses default intensity properties when intensity_image_dict is provided.
+            If None, uses DEFAULT_INTENSITY_PROPERTY_NAMES when intensity_image_dict is provided.
     """
 
     mask_image: BoolArray | Int64Array
@@ -134,8 +136,8 @@ class SegmentationMask:
 
         # Validate intensity_image dict if provided
         if self.intensity_image_dict is not None:
-            if not isinstance(self.intensity_image_dict, dict):
-                raise TypeError("intensity_image_dict must be a dict mapping channels to 2D arrays")
+            if not isinstance(self.intensity_image_dict, Mapping):
+                raise TypeError("intensity_image_dict must be a Mapping of channels to 2D arrays")
             for channel, intensities in self.intensity_image_dict.items():
                 if not isinstance(intensities, np.ndarray):
                     raise TypeError(f"Intensity image for '{channel.name}' must be a numpy array")
@@ -221,10 +223,17 @@ class SegmentationMask:
             return empty_props
 
         # Extract morphological properties (no intensity image needed)
+        # Only compute extra properties if explicitly requested
+        extra_props = []
+        if self.property_names and "circularity" in self.property_names:
+            extra_props.append(circularity)
+        if self.property_names and "volume" in self.property_names:
+            extra_props.append(volume)
+
         properties = ski.measure.regionprops_table(
             self.label_image,
             properties=self.property_names,
-            extra_properties=[circularity, volume],
+            extra_properties=extra_props,
         )
 
         # Extract intensity properties for each channel
@@ -333,7 +342,7 @@ def circularity(region_mask: BoolArray) -> float:
         Circularity value between 0 and 1. Returns 0 if perimeter is zero.
     """
     # regionprops expects a labeled image, so convert the mask (0/1)
-    labeled_mask = region_mask.astype(np.int64, copy=False)
+    labeled_mask = region_mask.astype(np.int64)
 
     # Compute standard region properties on this mask
     props = ski.measure.regionprops(labeled_mask)[0]
@@ -361,7 +370,7 @@ def volume(region_mask: BoolArray) -> float:
         Estimated volume in cubic pixels. Returns 0 if axis lengths cannot be computed.
     """
     # regionprops expects a labeled image, so convert the mask (0/1)
-    labeled_mask = region_mask.astype(np.int64, copy=False)
+    labeled_mask = region_mask.astype(np.int64)
 
     # Compute standard region properties on this mask
     props = ski.measure.regionprops(labeled_mask)[0]
