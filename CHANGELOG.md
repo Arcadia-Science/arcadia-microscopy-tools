@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-01-22
+
+### Added
+- New `microplate.py` module for managing multiwell plate layouts:
+  - `Well` class: Represents individual wells with ID normalization (e.g., "a1" → "A01"), sample tracking, and custom properties
+  - `MicroplateLayout` class: Manages complete plate layouts with features:
+    - Load layouts from CSV files with `from_csv()`
+    - Access wells by ID with automatic normalization support (both "A1" and "A01" formats)
+    - Convert to pandas DataFrame for analysis with `to_dataframe()`
+    - Display plate layouts as formatted grid tables with `display()`
+    - Validation for duplicate wells and invalid IDs
+
+### Changed
+- Refactored `masks.py` architecture for improved performance and maintainability:
+  - Replaced class-based outline extractors with simpler function-based approach
+  - Refactored `MaskProcessor` class into standalone `_process_mask()` function
+  - Extra properties (circularity, volume) now only computed when explicitly requested
+  - Updated `DEFAULT_CELL_PROPERTY_NAMES` to include circularity and volume by default
+- Made cellpose and modal optional dependencies to reduce installation size:
+  - Install with `uv pip install arcadia-microscopy-tools[segmentation]` for cellpose support
+  - Install with `uv pip install arcadia-microscopy-tools[compute]` for modal support
+  - Install with `uv pip install arcadia-microscopy-tools[all]` for all optional dependencies
+- Moved pytest from main dependencies to dev group
+- Consolidated all dev tools into single `dev` dependency group
+
+### Fixed
+- Coordinate format inconsistency in outline extractors: both cellpose and skimage now return outlines in (y, x) format
+- `isinstance` check in `SegmentationMask` now accepts `Mapping` type instead of just `dict` to match type annotation
+- Empty outline arrays now properly shaped as (0, 2) for consistency
+
 ## [0.2.2] - 2026-01-08
 
 ### Added
