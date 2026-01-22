@@ -71,6 +71,28 @@ class ImageMetadata:
 
         return create_image_metadata_from_nd2(nd2_path, channels)
 
+    @classmethod
+    def from_lif_path(
+        cls,
+        lif_path: Path,
+        image_name: str,
+        channels: list[Channel] | None = None,
+    ) -> ImageMetadata:
+        """Create ImageMetadata from a Leica LIF file.
+
+        Args:
+            lif_path: Path to the Leica LIF file.
+            image_name: Name of the specific image within the LIF file to extract.
+            channels: Optional list of Channel objects to override automatic channel detection.
+                If not provided, channels are inferred from the LIF file metadata.
+
+        Returns:
+            ImageMetadata with sizes and channel metadata for all channels.
+        """
+        from .leica import create_image_metadata_from_lif
+
+        return create_image_metadata_from_lif(lif_path, image_name, channels)
+
 
 @dataclass
 class Metadata:
