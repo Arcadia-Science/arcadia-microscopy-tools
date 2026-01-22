@@ -12,20 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `Well` class: Represents individual wells with ID normalization (e.g., "a1" → "A01"), sample tracking, and custom properties
   - `MicroplateLayout` class: Manages complete plate layouts with features:
     - Load layouts from CSV files with `from_csv()`
-    - Access wells by ID with automatic normalization support (both "A1" and "A01" formats)
-    - Convert to pandas DataFrame for analysis with `to_dataframe()`
     - Display plate layouts as formatted grid tables with `display()`
-    - Validation for duplicate wells and invalid IDs
 
 ### Changed
 - Refactored `masks.py` architecture for improved performance and maintainability:
-  - Replaced class-based outline extractors with simpler function-based approach
   - Refactored `MaskProcessor` class into standalone `_process_mask()` function
-  - Extra properties (circularity, volume) now only computed when explicitly requested
   - Updated `DEFAULT_CELL_PROPERTY_NAMES` to include circularity and volume by default
 - Made cellpose and modal optional dependencies to reduce installation size:
   - Install with `uv pip install arcadia-microscopy-tools[segmentation]` for cellpose support
-  - Install with `uv pip install arcadia-microscopy-tools[compute]` for modal support
   - Install with `uv pip install arcadia-microscopy-tools[all]` for all optional dependencies
 - Moved pytest from main dependencies to dev group
 - Consolidated all dev tools into single `dev` dependency group
