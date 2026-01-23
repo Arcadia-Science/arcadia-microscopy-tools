@@ -187,6 +187,7 @@ class MicroscopyImage:
         cls,
         lif_path: Path,
         image_name: str,
+        channels: list[Channel] | None = None,
         sample_metadata: dict[str, Any] | None = None,
     ) -> MicroscopyImage:
         """Create MicroscopyImage from a Leica LIF file.
@@ -194,20 +195,17 @@ class MicroscopyImage:
         Args:
             lif_path: Path to the Leica LIF file.
             image_name: Name of the image within the LIF file to load.
+            channels: Optional list of Channel objects to override automatic channel detection.
+                If not provided, channels are inferred from the LIF file metadata.
             sample_metadata: Optional dictionary containing sample-specific metadata.
 
         Returns:
             MicroscopyImage: A new microscopy image with intensity data and metadata.
-
-        Note:
-            LIF files currently have minimal metadata support. Channel metadata is not
-            parsed, so operations requiring channel information may not work as expected.
         """
         with liffile.LifFile(lif_path) as lif:
             for image in lif.images:
                 if image.name == image_name:
                     intensities = image.asarray()
-                    sizes = image.sizes
                     break
             else:
                 raise ValueError(
@@ -215,8 +213,7 @@ class MicroscopyImage:
                     f"{[image.name for image in lif.images]}"
                 )
 
-        # TODO: create parser for LIF metadata - for now create minimal ImageMetadata
-        image_metadata = ImageMetadata(sizes=sizes, channel_metadata_list=[])
+        image_metadata = ImageMetadata.from_lif_path(lif_path, image_name, channels)
         metadata = Metadata(image_metadata, sample_metadata)
         return cls(intensities, metadata)
 
