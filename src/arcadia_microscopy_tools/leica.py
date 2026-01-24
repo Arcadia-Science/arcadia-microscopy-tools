@@ -294,17 +294,40 @@ class _LeicaMetadataParser:
             ...
             Λ: dim_id = 9
         """
-        lif_dimension_x = next(d for d in self.image_description.lif_dimensions if d.dim_id == 1)
-        lif_dimension_y = next(d for d in self.image_description.lif_dimensions if d.dim_id == 2)
+        # Find X and Y dimensions
+        lif_dimension_x = next(
+            (d for d in self.image_description.lif_dimensions if d.dim_id == 1), None
+        )
+        lif_dimension_y = next(
+            (d for d in self.image_description.lif_dimensions if d.dim_id == 2), None
+        )
+
+        if lif_dimension_x is None:
+            raise ValueError("Missing X dimension (dim_id=1) in LIF metadata")
+        if lif_dimension_y is None:
+            raise ValueError("Missing Y dimension (dim_id=2) in LIF metadata")
+
+        # Validate dimensions match sizes
+        if lif_dimension_x.number_of_elements != self.sizes["X"]:
+            raise ValueError(
+                f"X dimension mismatch: lif_dimension has {lif_dimension_x.number_of_elements} "
+                f"but sizes has {self.sizes['X']}"
+            )
+        if lif_dimension_y.number_of_elements != self.sizes["Y"]:
+            raise ValueError(
+                f"Y dimension mismatch: lif_dimension has {lif_dimension_y.number_of_elements} "
+                f"but sizes has {self.sizes['Y']}"
+            )
 
         # Check that units are in meters
-        units = [d.unit for d in [lif_dimension_x, lif_dimension_y]]
-        if not all(unit == "m" for unit in units):
-            raise ValueError(f"Expected lengths in 'm' for physical dimensions but got: {units}")
+        if lif_dimension_x.unit != "m":
+            raise ValueError(f"Expected X dimension unit 'm' but got: {lif_dimension_x.unit}")
+        if lif_dimension_y.unit != "m":
+            raise ValueError(f"Expected Y dimension unit 'm' but got: {lif_dimension_y.unit}")
 
-        # Calculate pixel size and convert to microns
-        pixel_size_um_x = 1e6 * lif_dimension_x.length / lif_dimension_x.number_of_elements
-        pixel_size_um_y = 1e6 * lif_dimension_y.length / lif_dimension_y.number_of_elements
+        # Calculate pixel size using step property and convert to microns
+        pixel_size_um_x = 1e6 * lif_dimension_x.step
+        pixel_size_um_y = 1e6 * lif_dimension_y.step
         pixel_size_um = (pixel_size_um_x + pixel_size_um_y) / 2
 
         # Calculate thickness and step size for z
@@ -312,14 +335,22 @@ class _LeicaMetadataParser:
         z_step_size_um = None
         if self.dimensions.is_zstack:
             lif_dimension_z = next(
-                d for d in self.image_description.lif_dimensions if d.dim_id == 3
+                (d for d in self.image_description.lif_dimensions if d.dim_id == 3), None
             )
-            # Check that unit is in meters
+            if lif_dimension_z is None:
+                raise ValueError("Missing Z dimension (dim_id=3) in LIF metadata for z-stack")
+
+            # Validate Z dimension
             if lif_dimension_z.unit != "m":
-                raise ValueError(f"Expected length in 'm' but got: {lif_dimension_z.unit}")
+                raise ValueError(f"Expected Z dimension unit 'm' but got: {lif_dimension_z.unit}")
+            if lif_dimension_z.number_of_elements != self.sizes["Z"]:
+                raise ValueError(
+                    f"Z dimension mismatch: lif_dimension has {lif_dimension_z.number_of_elements} "
+                    f"but sizes has {self.sizes['Z']}"
+                )
 
             thickness_px = lif_dimension_z.number_of_elements
-            z_step_size_um = 1e6 * lif_dimension_z.length / thickness_px
+            z_step_size_um = 1e6 * lif_dimension_z.step
 
         return PhysicalDimensions(
             height_px=self.sizes["Y"],
