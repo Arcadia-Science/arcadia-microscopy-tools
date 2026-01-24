@@ -118,6 +118,8 @@ class _LeicaMetadataParser:
         with liffile.LifFile(self.lif_path) as self._lif:
             self.image = self._lif.images[self.image_name]
             self.sizes = self.image.sizes
+            self.dimensions = self._get_dimension_flags()
+            self.timestamp = self._parse_timestamp()
 
             # Parse image description
             image_description_element = self.image.xml_element.find("./Data/Image/ImageDescription")
@@ -224,16 +226,14 @@ class _LeicaMetadataParser:
                     f"Please provide channels list explicitly."
                 )
 
-        dimensions = self._get_dimension_flags()
-        timestamp = self._parse_timestamp()
-        resolution = self._parse_physical_dimensions(dimensions)
+        resolution = self._parse_physical_dimensions()
         acquisition = self._parse_acquisition_settings()
         optics = self._parse_microscope_settings()
 
         return ChannelMetadata(
             channel=channel,
-            timestamp=timestamp,
-            dimensions=dimensions,
+            timestamp=self.timestamp,
+            dimensions=self.dimensions,
             resolution=resolution,
             acquisition=acquisition,
             optics=optics,
@@ -262,21 +262,20 @@ class _LeicaMetadataParser:
             - https://github.com/cgohlke/liffile/blob/main/liffile/liffile.py#L869
         """
         dimensions = DimensionFlags(0)
-        sizes = self._lif.images[self.image_name].sizes
 
-        if "T" in sizes and sizes["T"] > 1:
+        if "T" in self.sizes and self.sizes["T"] > 1:
             dimensions |= DimensionFlags.TIMELAPSE
 
-        if "Z" in sizes and sizes["Z"] > 1:
+        if "Z" in self.sizes and self.sizes["Z"] > 1:
             dimensions |= DimensionFlags.Z_STACK
 
-        if "S" in sizes and sizes["S"] > 1:
+        if "S" in self.sizes and self.sizes["S"] > 1:
             dimensions |= DimensionFlags.RGB
 
-        if "Λ" in sizes and sizes["Λ"] > 1:
+        if "Λ" in self.sizes and self.sizes["Λ"] > 1:
             dimensions |= DimensionFlags.SPECTRAL
 
-        if "M" in sizes and sizes["M"] > 1:
+        if "M" in self.sizes and self.sizes["M"] > 1:
             dimensions |= DimensionFlags.MONTAGE
 
         return dimensions
@@ -285,27 +284,63 @@ class _LeicaMetadataParser:
         """Parse timestamp from LIF metadata."""
         return self._lif.images[self.image_name].timestamps[0]
 
-    def _parse_physical_dimensions(self, dimensions: DimensionFlags) -> PhysicalDimensions:
-        """Parse physical dimensions from LIF metadata."""
-        pixel_size_um = -1
-        z_step_size_um = -1
+    def _parse_physical_dimensions(self) -> PhysicalDimensions:
+        """Parse physical dimensions from LIF metadata.
+
+        Dimension ID legend:
+            X: dim_id = 1
+            Y: dim_id = 2
+            Z: dim_id = 3
+            ...
+            Λ: dim_id = 9
+        """
+        lif_dimension_x = next(d for d in self.image_description.lif_dimensions if d.dim_id == 1)
+        lif_dimension_y = next(d for d in self.image_description.lif_dimensions if d.dim_id == 2)
+
+        # Check that units are in meters
+        units = [d.unit for d in [lif_dimension_x, lif_dimension_y]]
+        if not all(unit == "m" for unit in units):
+            raise ValueError(f"Expected lengths in 'm' for physical dimensions but got: {units}")
+
+        # Calculate pixel size and convert to microns
+        pixel_size_um_x = 1e6 * lif_dimension_x.length / lif_dimension_x.number_of_elements
+        pixel_size_um_y = 1e6 * lif_dimension_y.length / lif_dimension_y.number_of_elements
+        pixel_size_um = (pixel_size_um_x + pixel_size_um_y) / 2
+
+        # Calculate thickness and step size for z
+        thickness_px = None
+        z_step_size_um = None
+        if self.dimensions.is_zstack:
+            lif_dimension_z = next(
+                d for d in self.image_description.lif_dimensions if d.dim_id == 3
+            )
+            # Check that unit is in meters
+            if lif_dimension_z.unit != "m":
+                raise ValueError(f"Expected length in 'm' but got: {lif_dimension_z.unit}")
+
+            thickness_px = lif_dimension_z.number_of_elements
+            z_step_size_um = 1e6 * lif_dimension_z.length / thickness_px
 
         return PhysicalDimensions(
             height_px=self.sizes["Y"],
             width_px=self.sizes["X"],
             pixel_size_um=pixel_size_um,
-            thickness_px=self.sizes["Z"] if dimensions.is_zstack else None,
-            z_step_size_um=z_step_size_um if dimensions.is_zstack else None,
+            thickness_px=thickness_px,
+            z_step_size_um=z_step_size_um,
         )
 
     def _parse_acquisition_settings(self) -> AcquisitionSettings:
         """Parse acquisition settings from LIF metadata."""
+        import numpy as np
+
+        wavelengths_nm = np.array([-1.0])
+
         return AcquisitionSettings(
             exposure_time_ms=-1,
             zoom=None,
             binning=None,
             frame_intervals_ms=None,
-            wavelengths_nm=None,
+            wavelengths_nm=wavelengths_nm if self.dimensions.is_spectral else None,
         )
 
     def _parse_microscope_settings(self) -> MicroscopeSettings:
