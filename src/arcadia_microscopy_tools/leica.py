@@ -136,7 +136,7 @@ class _LeicaMetadataParser:
             # Validate critical metadata exists
             if not hasattr(self.image, "attrs"):
                 raise ValueError(
-                    f"Missing attrs metadata for image {self.lif_path}/{self.image_name}"
+                    f"Missing attrs metadata for image '{self.image_name}' in {self.lif_path}"
                 )
 
             self.sizes = self.image.sizes
@@ -147,7 +147,8 @@ class _LeicaMetadataParser:
             image_description_element = self.image.xml_element.find("./Data/Image/ImageDescription")
             if image_description_element is None:
                 raise ValueError(
-                    f"Missing image description metadata {self.lif_path}/{self.image_name}"
+                    f"Missing image description metadata for image '{self.image_name}' "
+                    f"in {self.lif_path}"
                 )
             self.image_description = self.parse_image_description(image_description_element)
 
@@ -356,7 +357,12 @@ class _LeicaMetadataParser:
 
     def _parse_timestamp(self) -> datetime:
         """Parse timestamp from LIF metadata."""
-        return self._lif.images[self.image_name].timestamps[0]
+        try:
+            return self._lif.images[self.image_name].timestamps[0]
+        except IndexError as ex:
+            raise ValueError(
+                f"Could not parse timestamp for image '{self.image_name}' in {self.lif_path}"
+            ) from ex
 
     def _parse_physical_dimensions(self) -> PhysicalDimensions:
         """Parse physical dimensions from LIF metadata.
