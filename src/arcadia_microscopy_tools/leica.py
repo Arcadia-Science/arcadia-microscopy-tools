@@ -104,6 +104,12 @@ def create_image_metadata_from_lif(
 class _LeicaMetadataParser:
     """Parser for extracting metadata from Leica LIF files."""
 
+    # Map of (detector_name, beam_route) to Channel for automatic channel detection
+    _CHANNEL_DETECTION_MAP = {
+        ("F-SRS", None): SRS,  # beam_route typically "10;0" but not checked
+        ("HyD NDD 1", "20;21"): CARS,
+    }
+
     def __init__(
         self,
         lif_path: Path,
@@ -142,13 +148,36 @@ class _LeicaMetadataParser:
             return ImageMetadata(self.sizes, channel_metadata_list)
 
     def parse_image_description(self, image_description_element: ET.Element) -> ImageDescription:
+        """Parse the ImageDescription XML element into structured data.
+
+        Args:
+            image_description_element: The <ImageDescription> XML element
+
+        Returns:
+            ImageDescription containing channels and dimensions
+        """
         channels_element = image_description_element.find("Channels")
         dimensions_element = image_description_element.find("Dimensions")
         if channels_element is None or dimensions_element is None:
             raise ValueError("Expected <Channels> and <Dimensions> under <ImageDescription>")
 
+        lif_channels = self._parse_channels_from_xml(channels_element)
+        lif_dimensions = self._parse_dimensions_from_xml(dimensions_element)
+
+        return ImageDescription(lif_channels, lif_dimensions)
+
+    def _parse_channels_from_xml(self, channels_element: ET.Element) -> list[LifChannel]:
+        """Parse channel descriptions from the <Channels> XML element.
+
+        Args:
+            channels_element: The <Channels> XML element
+
+        Returns:
+            List of LifChannel objects
+        """
         lif_channels: list[LifChannel] = []
         for channel_element in channels_element.findall("ChannelDescription"):
+            # Extract channel properties
             props: dict[str, str] = {}
             for prop in channel_element.findall("ChannelProperty"):
                 key_element = prop.find("Key")
@@ -157,6 +186,7 @@ class _LeicaMetadataParser:
                     continue
                 props[key_element.text] = value_element.text or ""
 
+            # Build LifChannel from XML attributes
             lif_channels.append(
                 LifChannel(
                     data_type=_as_int(self._required(channel_element, "DataType"), ctx="DataType"),
@@ -177,6 +207,17 @@ class _LeicaMetadataParser:
                 )
             )
 
+        return lif_channels
+
+    def _parse_dimensions_from_xml(self, dimensions_element: ET.Element) -> list[LifDimension]:
+        """Parse dimension descriptions from the <Dimensions> XML element.
+
+        Args:
+            dimensions_element: The <Dimensions> XML element
+
+        Returns:
+            List of LifDimension objects
+        """
         lif_dimensions: list[LifDimension] = []
         for dimension_element in dimensions_element.findall("DimensionDescription"):
             lif_dimensions.append(
@@ -196,7 +237,7 @@ class _LeicaMetadataParser:
                 )
             )
 
-        return ImageDescription(lif_channels, lif_dimensions)
+        return lif_dimensions
 
     def _parse_all_channels(self) -> list[ChannelMetadata]:
         """Parse metadata for all channels in the LIF image."""
@@ -221,19 +262,8 @@ class _LeicaMetadataParser:
         channel: Channel | None = None,
     ) -> ChannelMetadata:
         """Parse metadata for a specific channel."""
-        # Try to resolve channel
         if channel is None:
-            detector_name = lif_channel.properties.get("DetectorName")
-            beam_route = lif_channel.properties.get("BeamRoute")
-            if detector_name == "F-SRS":  # beam_route == "10;0"
-                channel = SRS
-            elif detector_name == "HyD NDD 1" and beam_route == "20;21":
-                channel = CARS
-            else:
-                raise ValueError(
-                    f"Could not determine channel from DetectorName: {detector_name}. "
-                    f"Please provide channels list explicitly."
-                )
+            channel = self._infer_channel(lif_channel)
 
         resolution = self._parse_physical_dimensions()
         acquisition = self._parse_acquisition_settings(channel)
@@ -246,6 +276,34 @@ class _LeicaMetadataParser:
             resolution=resolution,
             acquisition=acquisition,
             optics=optics,
+        )
+
+    def _infer_channel(self, lif_channel: LifChannel) -> Channel:
+        """Infer channel type from detector metadata.
+
+        Args:
+            lif_channel: The LIF channel to infer from
+
+        Returns:
+            The inferred Channel
+
+        Raises:
+            ValueError: If channel cannot be determined from metadata
+        """
+        detector_name = lif_channel.properties.get("DetectorName")
+        beam_route = lif_channel.properties.get("BeamRoute")
+
+        # Try exact match with beam route
+        if (detector_name, beam_route) in self._CHANNEL_DETECTION_MAP:
+            return self._CHANNEL_DETECTION_MAP[(detector_name, beam_route)]
+
+        # Try match without beam route
+        if (detector_name, None) in self._CHANNEL_DETECTION_MAP:
+            return self._CHANNEL_DETECTION_MAP[(detector_name, None)]
+
+        raise ValueError(
+            f"Could not determine channel from DetectorName: {detector_name}, "
+            f"BeamRoute: {beam_route}. Please provide channels list explicitly."
         )
 
     def _get_dimension_flags(self) -> DimensionFlags:
@@ -376,7 +434,8 @@ class _LeicaMetadataParser:
         """Parse acquisition settings from LIF metadata."""
         wavelengths_nm = None
         if self.dimensions.is_spectral or channel in (CARS, SRS):
-            wavelengths_nm = self._find_laser_wavelengths(channel)
+            extractor = _WavelengthExtractor(self.image, self.sizes)
+            wavelengths_nm = extractor.extract_wavelengths(channel)
 
         return AcquisitionSettings(
             exposure_time_ms=-1,
@@ -388,36 +447,13 @@ class _LeicaMetadataParser:
 
     def _parse_microscope_settings(self) -> MicroscopeSettings:
         """Parse microscope settings from LIF metadata."""
-        magnification = -1
-        numerical_aperture = -1.0
-        objective = None
+        microscope_data = self.image.attrs.get("HardwareSetting", {}).get(
+            "ATLConfocalSettingDefinition", {}
+        )
 
-        try:
-            microscope_data = self.image.attrs["HardwareSetting"]["ATLConfocalSettingDefinition"]
-
-            # Try to extract magnification
-            if "Magnification" in microscope_data:
-                try:
-                    magnification = int(microscope_data["Magnification"])
-                except (ValueError, TypeError):
-                    pass
-
-            # Try to extract numerical aperture
-            if "NumericalAperture" in microscope_data:
-                try:
-                    numerical_aperture = float(microscope_data["NumericalAperture"])
-                except (ValueError, TypeError):
-                    pass
-
-            # Try to extract objective name
-            if "ObjectiveName" in microscope_data:
-                objective_name = microscope_data["ObjectiveName"]
-                if objective_name is not None and isinstance(objective_name, str):
-                    objective = objective_name.strip()
-
-        except (KeyError, TypeError):
-            # HardwareSetting path doesn't exist, use defaults
-            pass
+        magnification = int(microscope_data.get("Magnification", -1))
+        numerical_aperture = float(microscope_data.get("NumericalAperture", -1.0))
+        objective = microscope_data.get("ObjectiveName")
 
         return MicroscopeSettings(
             magnification=magnification,
@@ -427,59 +463,95 @@ class _LeicaMetadataParser:
             power_mw=None,
         )
 
-    def _find_laser_wavelengths(self, channel: Channel) -> FloatArray | None:
-        """Recursively search for laser wavelength information in metadata.
+    @staticmethod
+    def _required(e: ET.Element, name: str) -> str:
+        v = e.get(name)
+        if v is None:
+            raise ValueError(f"Missing attribute {name!r} on <{e.tag}>")
+        return v
 
-        This searches through the attrs dictionary structure to find wavelength information
-        which can be located in various places depending on acquisition mode.
+
+class _WavelengthExtractor:
+    """Extracts wavelength information from LIF file metadata.
+
+    Handles the complexity of finding wavelength data in various locations
+    within the LIF metadata structure, which varies by acquisition mode.
+    """
+
+    def __init__(self, image: liffile.LifImageABC, sizes: dict[str, int]):
+        self.image = image
+        self.sizes = sizes
+
+    def extract_wavelengths(self, channel: Channel) -> FloatArray | None:
+        """Find laser wavelength information for the given channel.
+
+        Tries multiple strategies depending on the acquisition mode:
+            1. For Lambda (Λ) scans: checks LaserValues path
+            2. For CARS/SRS: checks HardwareSetting LaserArray
+            3. Falls back to recursive search through all attrs
 
         Args:
-            channel: The channel being parsed (used to determine which paths to check)
+            channel: The channel being parsed (determines which paths to check)
 
         Returns:
             Array of wavelengths in nanometers, or None if no wavelengths found.
         """
-        # For Lambda (Λ) scans, try the specific LaserValues path first
+        # Strategy 1: Lambda (Λ) scans - check LaserValues path
         if "Λ" in self.sizes and self.sizes["Λ"] > 1:
-            try:
-                laser_values = self.image.attrs["LaserValues"]["Laser"]["StagePosition"][
-                    "LaserValues"
-                ]
-                if laser_values is not None:
+            wavelengths = self._try_lambda_scan_path()
+            if wavelengths is not None:
+                return wavelengths
+
+        # Strategy 2: CARS/SRS channels - check HardwareSetting path
+        if channel in (CARS, SRS):
+            wavelengths = self._try_cars_srs_path()
+            if wavelengths is not None:
+                return wavelengths
+
+        # Strategy 3: Recursive search through all attrs
+        return self._recursive_search()
+
+    def _try_lambda_scan_path(self) -> FloatArray | None:
+        """Try to extract wavelengths from Lambda scan specific path."""
+        try:
+            laser_values = self.image.attrs["LaserValues"]["Laser"]["StagePosition"][
+                "LaserValues"
+            ]
+            if laser_values is not None:
+                results = []
+                self._search_wavelengths(laser_values, results)
+                if results:
+                    wavelengths = sorted(set(results))
+                    return np.array(wavelengths, dtype=np.float64)
+        except (KeyError, TypeError):
+            pass
+        return None
+
+    def _try_cars_srs_path(self) -> FloatArray | None:
+        """Try to extract wavelengths from CARS/SRS specific path."""
+        try:
+            laser_array = self.image.attrs["HardwareSetting"]["ATLConfocalSettingDefinition"][
+                "LaserArray"
+            ]["Laser"]
+            # Try to find the CRS laser (often at index 2)
+            if isinstance(laser_array, list) and len(laser_array) > 2:
+                crs_laser = laser_array[2]
+                if crs_laser.get("LaserName") == "CRS":
                     results = []
-                    self._search_wavelengths(laser_values, results)
+                    self._search_wavelengths(crs_laser, results)
                     if results:
                         wavelengths = sorted(set(results))
                         return np.array(wavelengths, dtype=np.float64)
-            except (KeyError, TypeError):
-                # Path doesn't exist, fall through to next strategy
-                pass
+        except (KeyError, TypeError, IndexError):
+            pass
+        return None
 
-        # For CARS/SRS channels, check HardwareSetting path
-        if channel in (CARS, SRS):
-            try:
-                laser_array = self.image.attrs["HardwareSetting"]["ATLConfocalSettingDefinition"][
-                    "LaserArray"
-                ]["Laser"]
-                # Try to find the CRS laser (often at index 2)
-                if isinstance(laser_array, list) and len(laser_array) > 2:
-                    crs_laser = laser_array[2]
-                    if crs_laser.get("LaserName") == "CRS":
-                        results = []
-                        self._search_wavelengths(crs_laser, results)
-                        if results:
-                            wavelengths = sorted(set(results))
-                            return np.array(wavelengths, dtype=np.float64)
-            except (KeyError, TypeError, IndexError):
-                # Path doesn't exist, fall through to recursive search
-                pass
-
-        # Fall back to recursive search through all attrs
+    def _recursive_search(self) -> FloatArray | None:
+        """Fall back to searching through all metadata recursively."""
         results = []
         self._search_wavelengths(self.image.attrs, results)
 
         if results:
-            # Flatten and deduplicate wavelengths, then sort
             wavelengths = sorted(set(results))
             return np.array(wavelengths, dtype=np.float64)
 
@@ -561,10 +633,3 @@ class _LeicaMetadataParser:
                 pass
 
         return None
-
-    @staticmethod
-    def _required(e: ET.Element, name: str) -> str:
-        v = e.get(name)
-        if v is None:
-            raise ValueError(f"Missing attribute {name!r} on <{e.tag}>")
-        return v
