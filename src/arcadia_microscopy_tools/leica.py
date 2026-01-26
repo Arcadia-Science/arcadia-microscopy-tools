@@ -376,7 +376,7 @@ class _LeicaMetadataParser:
         """Parse acquisition settings from LIF metadata."""
         wavelengths_nm = None
         if self.dimensions.is_spectral or channel in (CARS, SRS):
-            wavelengths_nm = self._find_laser_wavelengths()
+            wavelengths_nm = self._find_laser_wavelengths(channel)
 
         return AcquisitionSettings(
             exposure_time_ms=-1,
@@ -388,23 +388,93 @@ class _LeicaMetadataParser:
 
     def _parse_microscope_settings(self) -> MicroscopeSettings:
         """Parse microscope settings from LIF metadata."""
+        magnification = -1
+        numerical_aperture = -1.0
+        objective = None
+
+        try:
+            microscope_data = self.image.attrs["HardwareSetting"]["ATLConfocalSettingDefinition"]
+
+            # Try to extract magnification
+            if "Magnification" in microscope_data:
+                try:
+                    magnification = int(microscope_data["Magnification"])
+                except (ValueError, TypeError):
+                    pass
+
+            # Try to extract numerical aperture
+            if "NumericalAperture" in microscope_data:
+                try:
+                    numerical_aperture = float(microscope_data["NumericalAperture"])
+                except (ValueError, TypeError):
+                    pass
+
+            # Try to extract objective name
+            if "ObjectiveName" in microscope_data:
+                objective_name = microscope_data["ObjectiveName"]
+                if objective_name is not None and isinstance(objective_name, str):
+                    objective = objective_name.strip()
+
+        except (KeyError, TypeError):
+            # HardwareSetting path doesn't exist, use defaults
+            pass
+
         return MicroscopeSettings(
-            magnification=-1,
-            numerical_aperture=-1,
-            objective=None,
+            magnification=magnification,
+            numerical_aperture=numerical_aperture,
+            objective=objective,
             light_source=None,
             power_mw=None,
         )
 
-    def _find_laser_wavelengths(self) -> FloatArray | None:
+    def _find_laser_wavelengths(self, channel: Channel) -> FloatArray | None:
         """Recursively search for laser wavelength information in metadata.
 
         This searches through the attrs dictionary structure to find wavelength information
         which can be located in various places depending on acquisition mode.
 
+        Args:
+            channel: The channel being parsed (used to determine which paths to check)
+
         Returns:
             Array of wavelengths in nanometers, or None if no wavelengths found.
         """
+        # For Lambda (Λ) scans, try the specific LaserValues path first
+        if "Λ" in self.sizes and self.sizes["Λ"] > 1:
+            try:
+                laser_values = self.image.attrs["LaserValues"]["Laser"]["StagePosition"][
+                    "LaserValues"
+                ]
+                if laser_values is not None:
+                    results = []
+                    self._search_wavelengths(laser_values, results)
+                    if results:
+                        wavelengths = sorted(set(results))
+                        return np.array(wavelengths, dtype=np.float64)
+            except (KeyError, TypeError):
+                # Path doesn't exist, fall through to next strategy
+                pass
+
+        # For CARS/SRS channels, check HardwareSetting path
+        if channel in (CARS, SRS):
+            try:
+                laser_array = self.image.attrs["HardwareSetting"]["ATLConfocalSettingDefinition"][
+                    "LaserArray"
+                ]["Laser"]
+                # Try to find the CRS laser (often at index 2)
+                if isinstance(laser_array, list) and len(laser_array) > 2:
+                    crs_laser = laser_array[2]
+                    if crs_laser.get("LaserName") == "CRS":
+                        results = []
+                        self._search_wavelengths(crs_laser, results)
+                        if results:
+                            wavelengths = sorted(set(results))
+                            return np.array(wavelengths, dtype=np.float64)
+            except (KeyError, TypeError, IndexError):
+                # Path doesn't exist, fall through to recursive search
+                pass
+
+        # Fall back to recursive search through all attrs
         results = []
         self._search_wavelengths(self.image.attrs, results)
 
@@ -426,11 +496,18 @@ class _LeicaMetadataParser:
         """
         if isinstance(data, dict):
             # Look for wavelength fields in this dict
-            for key in ["Wavelength", "WavelengthBegin", "WavelengthEnd", "Excitation"]:
+            # Prefer WavelengthDouble over Wavelength if both exist
+            for key in ["WavelengthDouble", "WavelengthBegin", "WavelengthEnd", "Excitation"]:
                 if key in data:
                     wavelength = self._extract_wavelength_value(data[key])
                     if wavelength is not None:
                         results.append(wavelength)
+
+            # Only check "Wavelength" if "WavelengthDouble" wasn't found
+            if "Wavelength" in data and "WavelengthDouble" not in data:
+                wavelength = self._extract_wavelength_value(data["Wavelength"])
+                if wavelength is not None:
+                    results.append(wavelength)
 
             # If we have begin and end, generate a range
             if "WavelengthBegin" in data and "WavelengthEnd" in data:
@@ -465,7 +542,7 @@ class _LeicaMetadataParser:
             Wavelength in nanometers, or None if value cannot be parsed
         """
         # If it's already a number, assume it's in appropriate units
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             wavelength = float(value)
             # Convert to nm if it looks like it's in meters (< 1)
             if wavelength < 1:
