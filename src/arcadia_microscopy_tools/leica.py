@@ -75,7 +75,14 @@ class ImageDescription:
 
 
 def list_image_names(lif_path: Path) -> list[str]:
-    """"""
+    """List all image names contained in a LIF file.
+
+    Args:
+        lif_path: Path to the Leica LIF file
+
+    Returns:
+        List of image names in the file
+    """
     with liffile.LifFile(lif_path) as f:
         image_names = [image.name for image in f.images]
     return image_names
@@ -364,36 +371,11 @@ class _LeicaMetadataParser:
             "Λ": dim_id = 9
             "M": dim_id = 10
         """
-        # Find X and Y dimensions
-        lif_dimension_x = next(
-            (d for d in self.image_description.lif_dimensions if d.dim_id == 1), None
-        )
-        lif_dimension_y = next(
-            (d for d in self.image_description.lif_dimensions if d.dim_id == 2), None
-        )
-
-        if lif_dimension_x is None:
-            raise ValueError("Missing X dimension (dim_id=1) in LIF metadata")
-        if lif_dimension_y is None:
-            raise ValueError("Missing Y dimension (dim_id=2) in LIF metadata")
-
-        # Validate dimensions match sizes
-        if lif_dimension_x.number_of_elements != self.sizes["X"]:
-            raise ValueError(
-                f"X dimension mismatch: lif_dimension has {lif_dimension_x.number_of_elements} "
-                f"but sizes has {self.sizes['X']}"
-            )
-        if lif_dimension_y.number_of_elements != self.sizes["Y"]:
-            raise ValueError(
-                f"Y dimension mismatch: lif_dimension has {lif_dimension_y.number_of_elements} "
-                f"but sizes has {self.sizes['Y']}"
-            )
-
-        # Check that units are in meters
-        if lif_dimension_x.unit != "m":
-            raise ValueError(f"Expected X dimension unit 'm' but got: {lif_dimension_x.unit}")
-        if lif_dimension_y.unit != "m":
-            raise ValueError(f"Expected Y dimension unit 'm' but got: {lif_dimension_y.unit}")
+        # Find and validate X and Y dimensions
+        lif_dimension_x = self._find_dimension(1)
+        lif_dimension_y = self._find_dimension(2)
+        self._validate_dimension(lif_dimension_x, "X", self.sizes["X"])
+        self._validate_dimension(lif_dimension_y, "Y", self.sizes["Y"])
 
         # Calculate pixel size using step property and convert to microns
         pixel_size_um_x = 1e6 * lif_dimension_x.step
@@ -404,21 +386,8 @@ class _LeicaMetadataParser:
         thickness_px = None
         z_step_size_um = None
         if self.dimensions.is_zstack:
-            lif_dimension_z = next(
-                (d for d in self.image_description.lif_dimensions if d.dim_id == 3), None
-            )
-            if lif_dimension_z is None:
-                raise ValueError("Missing Z dimension (dim_id=3) in LIF metadata for z-stack")
-
-            # Validate Z dimension
-            if lif_dimension_z.unit != "m":
-                raise ValueError(f"Expected Z dimension unit 'm' but got: {lif_dimension_z.unit}")
-            if lif_dimension_z.number_of_elements != self.sizes["Z"]:
-                raise ValueError(
-                    f"Z dimension mismatch: lif_dimension has {lif_dimension_z.number_of_elements} "
-                    f"but sizes has {self.sizes['Z']}"
-                )
-
+            lif_dimension_z = self._find_dimension(3)
+            self._validate_dimension(lif_dimension_z, "Z", self.sizes["Z"])
             thickness_px = lif_dimension_z.number_of_elements
             z_step_size_um = 1e6 * lif_dimension_z.step
 
@@ -429,6 +398,47 @@ class _LeicaMetadataParser:
             thickness_px=thickness_px,
             z_step_size_um=z_step_size_um,
         )
+
+    def _find_dimension(self, dim_id: int) -> LifDimension:
+        """Find a dimension by its ID.
+
+        Args:
+            dim_id: The dimension ID to find
+
+        Returns:
+            The LifDimension with the given ID
+
+        Raises:
+            ValueError: If dimension is not found
+        """
+        dimension = next(
+            (d for d in self.image_description.lif_dimensions if d.dim_id == dim_id), None
+        )
+        if dimension is None:
+            raise ValueError(f"Missing dimension (dim_id={dim_id}) in LIF metadata")
+        return dimension
+
+    def _validate_dimension(
+        self, dimension: LifDimension, dim_name: str, expected_size: int
+    ) -> None:
+        """Validate a dimension's unit and size.
+
+        Args:
+            dimension: The dimension to validate
+            dim_name: Human-readable name for error messages (e.g., "X", "Y", "Z")
+            expected_size: Expected number of elements
+
+        Raises:
+            ValueError: If validation fails
+        """
+        if dimension.unit != "m":
+            raise ValueError(f"Expected {dim_name} dimension unit 'm' but got: {dimension.unit}")
+
+        if dimension.number_of_elements != expected_size:
+            raise ValueError(
+                f"{dim_name} dimension mismatch: lif_dimension has {dimension.number_of_elements} "
+                f"but sizes has {expected_size}"
+            )
 
     def _parse_acquisition_settings(self, channel: Channel) -> AcquisitionSettings:
         """Parse acquisition settings from LIF metadata."""
