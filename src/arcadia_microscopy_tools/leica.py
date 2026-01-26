@@ -447,9 +447,21 @@ class _LeicaMetadataParser:
             extractor = _WavelengthExtractor(self.image, self.sizes)
             wavelengths_nm = extractor.extract_wavelengths(channel)
 
+        microscope_data = self.image.attrs.get("HardwareSetting", {}).get(
+            "ATLConfocalSettingDefinition", {}
+        )
+
+        # Extract pixel dwell time and calculate exposure time
+        exposure_time_ms = -1
+        pixel_dwell_time_s = microscope_data.get("PixelDwellTime")
+        if pixel_dwell_time_s is not None:
+            exposure_time_ms = 1e3 * float(pixel_dwell_time_s) * self.sizes["X"] * self.sizes["Y"]
+
+        zoom = float(microscope_data.get("Zoom", -1.0))
+
         return AcquisitionSettings(
-            exposure_time_ms=-1,
-            zoom=None,
+            exposure_time_ms=exposure_time_ms,
+            zoom=zoom,
             binning=None,
             frame_intervals_ms=None,
             wavelengths_nm=wavelengths_nm,
@@ -524,9 +536,7 @@ class _WavelengthExtractor:
     def _try_lambda_scan_path(self) -> FloatArray | None:
         """Try to extract wavelengths from Lambda scan specific path."""
         try:
-            laser_values = self.image.attrs["LaserValues"]["Laser"]["StagePosition"][
-                "LaserValues"
-            ]
+            laser_values = self.image.attrs["LaserValues"]["Laser"]["StagePosition"]["LaserValues"]
             if laser_values is not None:
                 results = []
                 self._search_wavelengths(laser_values, results)
