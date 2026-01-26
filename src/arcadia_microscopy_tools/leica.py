@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 import liffile
+import numpy as np
 
 from .channels import CARS, SRS, Channel
 from .metadata_structures import (
@@ -16,6 +17,7 @@ from .metadata_structures import (
     PhysicalDimensions,
 )
 from .microscopy import ImageMetadata
+from .typing import FloatArray
 
 
 def _as_int(s: str, *, ctx: str = "") -> int:
@@ -117,6 +119,13 @@ class _LeicaMetadataParser:
         """Parse the LIF file and extract all metadata for the specified image."""
         with liffile.LifFile(self.lif_path) as self._lif:
             self.image = self._lif.images[self.image_name]
+
+            # Validate critical metadata exists
+            if not hasattr(self.image, "attrs"):
+                raise ValueError(
+                    f"Missing attrs metadata for image {self.lif_path}/{self.image_name}"
+                )
+
             self.sizes = self.image.sizes
             self.dimensions = self._get_dimension_flags()
             self.timestamp = self._parse_timestamp()
@@ -227,7 +236,7 @@ class _LeicaMetadataParser:
                 )
 
         resolution = self._parse_physical_dimensions()
-        acquisition = self._parse_acquisition_settings()
+        acquisition = self._parse_acquisition_settings(channel)
         optics = self._parse_microscope_settings()
 
         return ChannelMetadata(
@@ -288,11 +297,14 @@ class _LeicaMetadataParser:
         """Parse physical dimensions from LIF metadata.
 
         Dimension ID legend:
-            X: dim_id = 1
-            Y: dim_id = 2
-            Z: dim_id = 3
-            ...
-            Λ: dim_id = 9
+            "X": dim_id = 1
+            "Y": dim_id = 2
+            "Z": dim_id = 3
+            "T": dim_id = 4
+            "λ": dim_id = 5
+            ... ?
+            "Λ": dim_id = 9
+            "M": dim_id = 10
         """
         # Find X and Y dimensions
         lif_dimension_x = next(
@@ -360,18 +372,18 @@ class _LeicaMetadataParser:
             z_step_size_um=z_step_size_um,
         )
 
-    def _parse_acquisition_settings(self) -> AcquisitionSettings:
+    def _parse_acquisition_settings(self, channel: Channel) -> AcquisitionSettings:
         """Parse acquisition settings from LIF metadata."""
-        import numpy as np
-
-        wavelengths_nm = np.array([-1.0])
+        wavelengths_nm = None
+        if self.dimensions.is_spectral or channel in (CARS, SRS):
+            wavelengths_nm = self._find_laser_wavelengths()
 
         return AcquisitionSettings(
             exposure_time_ms=-1,
             zoom=None,
             binning=None,
             frame_intervals_ms=None,
-            wavelengths_nm=wavelengths_nm if self.dimensions.is_spectral else None,
+            wavelengths_nm=wavelengths_nm,
         )
 
     def _parse_microscope_settings(self) -> MicroscopeSettings:
@@ -383,6 +395,95 @@ class _LeicaMetadataParser:
             light_source=None,
             power_mw=None,
         )
+
+    def _find_laser_wavelengths(self) -> FloatArray | None:
+        """Recursively search for laser wavelength information in metadata.
+
+        This searches through the attrs dictionary structure to find wavelength information
+        which can be located in various places depending on acquisition mode.
+
+        Returns:
+            Array of wavelengths in nanometers, or None if no wavelengths found.
+        """
+        results = []
+        self._search_wavelengths(self.image.attrs, results)
+
+        if results:
+            # Flatten and deduplicate wavelengths, then sort
+            wavelengths = sorted(set(results))
+            return np.array(wavelengths, dtype=np.float64)
+
+        return None
+
+    def _search_wavelengths(
+        self, data: dict | list | str | int | float, results: list[float]
+    ) -> None:
+        """Recursively search through metadata structure for wavelength values.
+
+        Args:
+            data: Current node in the metadata structure
+            results: List to accumulate found wavelengths (modified in place)
+        """
+        if isinstance(data, dict):
+            # Look for wavelength fields in this dict
+            for key in ["Wavelength", "WavelengthBegin", "WavelengthEnd", "Excitation"]:
+                if key in data:
+                    wavelength = self._extract_wavelength_value(data[key])
+                    if wavelength is not None:
+                        results.append(wavelength)
+
+            # If we have begin and end, generate a range
+            if "WavelengthBegin" in data and "WavelengthEnd" in data:
+                begin = self._extract_wavelength_value(data["WavelengthBegin"])
+                end = self._extract_wavelength_value(data["WavelengthEnd"])
+                if begin is not None and end is not None and "WavelengthStep" in data:
+                    step = self._extract_wavelength_value(data["WavelengthStep"])
+                    if step is not None and step > 0:
+                        # Generate wavelength range
+                        current = begin
+                        while current <= end:
+                            results.append(current)
+                            current += step
+                        return  # Don't recurse further into this branch
+
+            # Recurse into child values
+            for value in data.values():
+                self._search_wavelengths(value, results)
+
+        elif isinstance(data, list):
+            # Recurse into list items
+            for item in data:
+                self._search_wavelengths(item, results)
+
+    def _extract_wavelength_value(self, value: str | int | float | dict | list) -> float | None:
+        """Extract a wavelength value and convert to nanometers if needed.
+
+        Args:
+            value: The value which might contain wavelength information
+
+        Returns:
+            Wavelength in nanometers, or None if value cannot be parsed
+        """
+        # If it's already a number, assume it's in appropriate units
+        if isinstance(value, (int, float)):
+            wavelength = float(value)
+            # Convert to nm if it looks like it's in meters (< 1)
+            if wavelength < 1:
+                wavelength *= 1e9
+            return wavelength
+
+        # If it's a string, try to parse it
+        if isinstance(value, str):
+            try:
+                wavelength = float(value)
+                # Convert to nm if it looks like it's in meters (< 1)
+                if wavelength < 1:
+                    wavelength *= 1e9
+                return wavelength
+            except (ValueError, TypeError):
+                pass
+
+        return None
 
     @staticmethod
     def _required(e: ET.Element, name: str) -> str:
