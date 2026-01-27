@@ -1,9 +1,10 @@
 from __future__ import annotations
+from typing import Literal
 
 import numpy as np
 import skimage as ski
 
-from .typing import FloatArray, ScalarArray
+from .typing import BoolArray, FloatArray, ScalarArray
 
 
 def rescale_by_percentile(
@@ -134,3 +135,83 @@ def crop_to_center(
     top = (height - crop_height) // 2
 
     return intensities[..., top : top + crop_height, left : left + crop_width]
+
+
+def apply_threshold(
+    intensities: ScalarArray,
+    method: Literal[
+        "otsu",
+        "li",
+        "yen",
+        "isodata",
+        "mean",
+        "minimum",
+        "triangle",
+        "niblack",
+        "sauvola",
+    ] = "otsu",
+    **kwargs,
+) -> BoolArray:
+    """Apply thresholding to convert grayscale image to binary using various methods.
+
+    Uses threshold calculation methods from skimage.filters to determine an optimal
+    threshold value, then applies it to create a binary image.
+
+    Args:
+        intensities: Input grayscale image array.
+        method:
+            Thresholding method to use. Supported methods include:
+            - 'otsu': Otsu's method (default)
+            - 'li': Li's minimum cross entropy method
+            - 'yen': Yen's method
+            - 'isodata': ISODATA method
+            - 'mean': Mean-based threshold
+            - 'minimum': Minimum method
+            - 'triangle': Triangle algorithm
+            - 'niblack': Niblack local threshold
+            - 'sauvola': Sauvola local threshold
+        **kwargs:
+            Additional keyword arguments passed to the thresholding function.
+            For local methods (niblack, sauvola), common kwargs include:
+            - window_size: Size of the local neighborhood
+            - k: Parameter controlling threshold adjustment
+
+    Returns:
+        BoolArray: Binary image where pixels above threshold are True.
+
+    Raises:
+        ValueError: If the specified method is not supported.
+
+    Examples:
+        >>> binary = apply_threshold(image, method='otsu')
+        >>> binary = apply_threshold(image, method='sauvola', window_size=25)
+    """
+    # Map method names to skimage.filters threshold functions
+    threshold_methods = {
+        "otsu": ski.filters.threshold_otsu,
+        "li": ski.filters.threshold_li,
+        "yen": ski.filters.threshold_yen,
+        "isodata": ski.filters.threshold_isodata,
+        "mean": ski.filters.threshold_mean,
+        "minimum": ski.filters.threshold_minimum,
+        "triangle": ski.filters.threshold_triangle,
+        "niblack": ski.filters.threshold_niblack,
+        "sauvola": ski.filters.threshold_sauvola,
+    }
+
+    method_lower = method.lower()
+    if method_lower not in threshold_methods:
+        raise ValueError(
+            f"Unsupported thresholding method: '{method}'. "
+            f"Supported methods: {', '.join(threshold_methods.keys())}"
+        )
+
+    threshold_func = threshold_methods[method_lower]
+
+    # Local methods (niblack, sauvola) return threshold array, others return scalar
+    if method_lower in ["niblack", "sauvola"]:
+        threshold_value = threshold_func(intensities, **kwargs)
+    else:
+        threshold_value = threshold_func(intensities, **kwargs)
+
+    return intensities > threshold_value
