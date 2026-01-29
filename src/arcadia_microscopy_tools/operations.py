@@ -1,9 +1,10 @@
 from __future__ import annotations
+from typing import Literal
 
 import numpy as np
 import skimage as ski
 
-from .typing import FloatArray, ScalarArray
+from .typing import BoolArray, FloatArray, ScalarArray
 
 
 def rescale_by_percentile(
@@ -18,11 +19,9 @@ def rescale_by_percentile(
 
     Args:
         intensities: Input image array.
-        percentile_range:
-            Tuple of (min, max) percentiles to use for intensity scaling.
+        percentile_range: Tuple of (min, max) percentiles to use for intensity scaling.
             Default is (0, 100) which uses the full intensity range.
-        out_range:
-            Tuple of (min, max) values for the output intensity range.
+        out_range: Tuple of (min, max) values for the output intensity range.
             Default is (0, 1) for float normalization.
 
     Returns:
@@ -68,14 +67,11 @@ def subtract_background_dog(
 
     Args:
         intensities: Input image array.
-        low_sigma:
-            Standard deviation for the smaller Gaussian kernel. Controls fine detail enhancement.
-            Default is 0.6.
-        high_sigma:
-            Standard deviation for the larger Gaussian kernel. Controls background estimation
-            extent. Default is 16.
-        percentile:
-            Percentile of filtered image to use as background level (0-100).
+        low_sigma: Standard deviation for the smaller Gaussian kernel.
+            Controls fine detail enhancement. Default is 0.6.
+        high_sigma: Standard deviation for the larger Gaussian kernel.
+        Controls background estimation extent. Default is 16.
+        percentile: Percentile of filtered image to use as background level (0-100).
             Default is 0 (minimum value).
 
     Returns:
@@ -134,3 +130,87 @@ def crop_to_center(
     top = (height - crop_height) // 2
 
     return intensities[..., top : top + crop_height, left : left + crop_width]
+
+
+def apply_threshold(
+    intensities: ScalarArray,
+    method: Literal[
+        "otsu",
+        "li",
+        "yen",
+        "isodata",
+        "mean",
+        "minimum",
+        "triangle",
+        "local",
+        "niblack",
+        "sauvola",
+    ] = "otsu",
+    **kwargs,
+) -> BoolArray:
+    """Apply thresholding to convert grayscale image to binary using various methods.
+
+    Uses threshold calculation methods from skimage.filters to determine an optimal
+    threshold value, then applies it to create a binary image.
+
+    Args:
+        intensities: Input grayscale image array.
+        method: Thresholding method to use. Supported methods include:
+            - 'otsu': Otsu's method (default)
+            - 'li': Li's minimum cross entropy method
+            - 'yen': Yen's method
+            - 'isodata': ISODATA method
+            - 'mean': Mean-based threshold
+            - 'minimum': Minimum method
+            - 'triangle': Triangle algorithm
+            - 'local': Adaptive local threshold
+            - 'niblack': Niblack local threshold
+            - 'sauvola': Sauvola local threshold
+        **kwargs: Additional keyword arguments passed to the thresholding function.
+            For local methods (niblack, sauvola, local), common kwargs include:
+            - window_size: Size of the local neighborhood
+            - k: Parameter controlling threshold adjustment
+
+    Returns:
+        BoolArray: Binary image where pixels above threshold are True.
+
+    Raises:
+        ValueError: If the specified method is not supported.
+
+    Examples:
+        >>> binary = apply_threshold(image, method='otsu')
+        >>> binary = apply_threshold(image, method='sauvola', window_size=25)
+    """
+    # Map method names to skimage.filters threshold functions
+    threshold_methods = {
+        "otsu": ski.filters.threshold_otsu,
+        "li": ski.filters.threshold_li,
+        "yen": ski.filters.threshold_yen,
+        "isodata": ski.filters.threshold_isodata,
+        "mean": ski.filters.threshold_mean,
+        "minimum": ski.filters.threshold_minimum,
+        "triangle": ski.filters.threshold_triangle,
+        "local": ski.filters.threshold_local,
+        "niblack": ski.filters.threshold_niblack,
+        "sauvola": ski.filters.threshold_sauvola,
+    }
+
+    # Handle empty or constant images
+    if intensities.size == 0:
+        return np.zeros_like(intensities, dtype=bool)
+    if np.min(intensities) == np.max(intensities):
+        return np.zeros_like(intensities, dtype=bool)
+
+    method_lower = method.lower()
+    if method_lower not in threshold_methods:
+        raise ValueError(
+            f"Unsupported thresholding method: '{method}'. "
+            f"Supported methods: {', '.join(threshold_methods.keys())}"
+        )
+
+    threshold_func = threshold_methods[method_lower]
+
+    # Local methods (niblack, sauvola) return threshold array, others return scalar
+    threshold_value = threshold_func(intensities, **kwargs)
+
+    return intensities > threshold_value
