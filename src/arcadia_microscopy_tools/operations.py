@@ -202,6 +202,12 @@ def apply_threshold(
         "sauvola": ski.filters.threshold_sauvola,
     }
 
+    # Handle empty or constant images
+    if intensities.size == 0:
+        return np.zeros_like(intensities, dtype=bool)
+    if np.min(intensities) == np.max(intensities):
+        return np.zeros_like(intensities, dtype=bool)
+
     method_lower = method.lower()
     if method_lower not in threshold_methods:
         raise ValueError(
