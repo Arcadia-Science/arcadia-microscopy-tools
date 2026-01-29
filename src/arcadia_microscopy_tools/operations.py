@@ -160,8 +160,7 @@ def apply_threshold(
 
     Args:
         intensities: Input grayscale image array.
-        method:
-            Thresholding method to use. Supported methods include:
+        method: Thresholding method to use. Supported methods include:
             - 'otsu': Otsu's method (default)
             - 'li': Li's minimum cross entropy method
             - 'yen': Yen's method
@@ -172,8 +171,7 @@ def apply_threshold(
             - 'local': Adaptive local threshold
             - 'niblack': Niblack local threshold
             - 'sauvola': Sauvola local threshold
-        **kwargs:
-            Additional keyword arguments passed to the thresholding function.
+        **kwargs: Additional keyword arguments passed to the thresholding function.
             For local methods (niblack, sauvola, local), common kwargs include:
             - window_size: Size of the local neighborhood
             - k: Parameter controlling threshold adjustment
