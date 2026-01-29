@@ -147,6 +147,7 @@ def apply_threshold(
         "mean",
         "minimum",
         "triangle",
+        "local",
         "niblack",
         "sauvola",
     ] = "otsu",
@@ -168,11 +169,12 @@ def apply_threshold(
             - 'mean': Mean-based threshold
             - 'minimum': Minimum method
             - 'triangle': Triangle algorithm
+            - 'local': Adaptive local threshold
             - 'niblack': Niblack local threshold
             - 'sauvola': Sauvola local threshold
         **kwargs:
             Additional keyword arguments passed to the thresholding function.
-            For local methods (niblack, sauvola), common kwargs include:
+            For local methods (niblack, sauvola, local), common kwargs include:
             - window_size: Size of the local neighborhood
             - k: Parameter controlling threshold adjustment
 
@@ -195,6 +197,7 @@ def apply_threshold(
         "mean": ski.filters.threshold_mean,
         "minimum": ski.filters.threshold_minimum,
         "triangle": ski.filters.threshold_triangle,
+        "local": ski.filters.threshold_local,
         "niblack": ski.filters.threshold_niblack,
         "sauvola": ski.filters.threshold_sauvola,
     }
@@ -209,9 +212,6 @@ def apply_threshold(
     threshold_func = threshold_methods[method_lower]
 
     # Local methods (niblack, sauvola) return threshold array, others return scalar
-    if method_lower in ["niblack", "sauvola"]:
-        threshold_value = threshold_func(intensities, **kwargs)
-    else:
-        threshold_value = threshold_func(intensities, **kwargs)
+    threshold_value = threshold_func(intensities, **kwargs)
 
     return intensities > threshold_value
