@@ -19,11 +19,9 @@ def rescale_by_percentile(
 
     Args:
         intensities: Input image array.
-        percentile_range:
-            Tuple of (min, max) percentiles to use for intensity scaling.
+        percentile_range: Tuple of (min, max) percentiles to use for intensity scaling.
             Default is (0, 100) which uses the full intensity range.
-        out_range:
-            Tuple of (min, max) values for the output intensity range.
+        out_range: Tuple of (min, max) values for the output intensity range.
             Default is (0, 1) for float normalization.
 
     Returns:
@@ -69,14 +67,11 @@ def subtract_background_dog(
 
     Args:
         intensities: Input image array.
-        low_sigma:
-            Standard deviation for the smaller Gaussian kernel. Controls fine detail enhancement.
-            Default is 0.6.
-        high_sigma:
-            Standard deviation for the larger Gaussian kernel. Controls background estimation
-            extent. Default is 16.
-        percentile:
-            Percentile of filtered image to use as background level (0-100).
+        low_sigma: Standard deviation for the smaller Gaussian kernel.
+            Controls fine detail enhancement. Default is 0.6.
+        high_sigma: Standard deviation for the larger Gaussian kernel.
+        Controls background estimation extent. Default is 16.
+        percentile: Percentile of filtered image to use as background level (0-100).
             Default is 0 (minimum value).
 
     Returns:
