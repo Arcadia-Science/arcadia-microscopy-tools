@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from cellpose.models import CellposeModel
 
-from .typing import FloatArray, Int64Array
+from .typing import Float64Array, Int64Array
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +167,7 @@ class SegmentationModel:
 
     def segment(
         self,
-        intensities: FloatArray,
+        intensities: Float64Array,
         cell_diameter_px: float | None = None,
         flow_threshold: float | None = None,
         cellprob_threshold: float | None = None,
@@ -213,7 +213,7 @@ class SegmentationModel:
 
     def batch_segment(
         self,
-        intensities_batch: Sequence[FloatArray],
+        intensities_batch: Sequence[Float64Array],
         cell_diameter_px: float | None = None,
         flow_threshold: float | None = None,
         cellprob_threshold: float | None = None,

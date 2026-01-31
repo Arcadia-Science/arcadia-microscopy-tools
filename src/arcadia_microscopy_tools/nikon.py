@@ -16,7 +16,7 @@ from .metadata_structures import (
     PhysicalDimensions,
 )
 from .microscopy import ImageMetadata
-from .typing import FloatArray
+from .typing import Float64Array
 
 
 def create_image_metadata_from_nd2(
@@ -247,7 +247,7 @@ class _NikonMetadataParser:
                     return time_s * 1000  # Convert to ms for AcquisitionSettings
         return None
 
-    def _parse_frame_intervals(self) -> FloatArray | None:
+    def _parse_frame_intervals(self) -> Float64Array | None:
         """Parse frame intervals from events metadata."""
         if self._nd2f.events():
             acquisition_start_times_s = [event["Time [s]"] for event in self._nd2f.events()]
