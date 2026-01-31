@@ -17,7 +17,7 @@ from .metadata_structures import (
     PhysicalDimensions,
 )
 from .microscopy import ImageMetadata
-from .typing import FloatArray
+from .typing import Float64Array
 
 
 def _as_int(s: str, *, ctx: str = "") -> int:
@@ -510,7 +510,7 @@ class _WavelengthExtractor:
         self.image = image
         self.sizes = sizes
 
-    def extract_wavelengths(self, channel: Channel) -> FloatArray | None:
+    def extract_wavelengths(self, channel: Channel) -> Float64Array | None:
         """Find laser wavelength information for the given channel.
 
         Tries multiple strategies depending on the acquisition mode:
@@ -539,7 +539,7 @@ class _WavelengthExtractor:
         # Strategy 3: Recursive search through all attrs
         return self._recursive_search()
 
-    def _try_lambda_scan_path(self) -> FloatArray | None:
+    def _try_lambda_scan_path(self) -> Float64Array | None:
         """Try to extract wavelengths from Lambda scan specific path."""
         try:
             laser_values = self.image.attrs["LaserValues"]["Laser"]["StagePosition"]["LaserValues"]
@@ -553,7 +553,7 @@ class _WavelengthExtractor:
             pass
         return None
 
-    def _try_cars_srs_path(self) -> FloatArray | None:
+    def _try_cars_srs_path(self) -> Float64Array | None:
         """Try to extract wavelengths from CARS/SRS specific path."""
         try:
             laser_array = self.image.attrs["HardwareSetting"]["ATLConfocalSettingDefinition"][
@@ -572,7 +572,7 @@ class _WavelengthExtractor:
             pass
         return None
 
-    def _recursive_search(self) -> FloatArray | None:
+    def _recursive_search(self) -> Float64Array | None:
         """Fall back to searching through all metadata recursively."""
         results = []
         self._search_wavelengths(self.image.attrs, results)
