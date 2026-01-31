@@ -4,7 +4,7 @@ from typing import Literal
 import numpy as np
 import skimage as ski
 
-from .typing import BoolArray, FloatArray, ScalarArray
+from .typing import BoolArray, Float64Array, ScalarArray
 
 
 def rescale_by_percentile(
@@ -59,7 +59,7 @@ def subtract_background_dog(
     low_sigma: float = 0.6,
     high_sigma: float = 16.0,
     percentile: float = 0,
-) -> FloatArray:
+) -> Float64Array:
     """Subtract background from image using difference of Gaussians and percentile thresholding.
 
     Applies difference of Gaussians filter to enhance features and then estimates and subtracts
@@ -75,7 +75,7 @@ def subtract_background_dog(
             Default is 0 (minimum value).
 
     Returns:
-        FloatArray: Background-subtracted image with negative values clipped to zero.
+        Float64Array: Background-subtracted image with negative values clipped to zero.
 
     Notes:
         - For best results, low_sigma should be smaller than the smallest feature of interest,

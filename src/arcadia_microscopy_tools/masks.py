@@ -10,7 +10,7 @@ import skimage as ski
 from cellpose.utils import outlines_list
 
 from .channels import Channel
-from .typing import BoolArray, FloatArray, Int64Array, ScalarArray, UInt16Array
+from .typing import BoolArray, Float64Array, Int64Array, ScalarArray, UInt16Array
 
 DEFAULT_CELL_PROPERTY_NAMES = [
     "label",
@@ -59,7 +59,7 @@ def _process_mask(
     return label_image
 
 
-def _extract_outlines_cellpose(label_image: Int64Array) -> list[FloatArray]:
+def _extract_outlines_cellpose(label_image: Int64Array) -> list[Float64Array]:
     """Extract cell outlines using Cellpose's outlines_list function.
 
     Args:
@@ -71,7 +71,7 @@ def _extract_outlines_cellpose(label_image: Int64Array) -> list[FloatArray]:
     return outlines_list(label_image, multiprocessing=False)
 
 
-def _extract_outlines_skimage(label_image: Int64Array) -> list[FloatArray]:
+def _extract_outlines_skimage(label_image: Int64Array) -> list[Float64Array]:
     """Extract cell outlines using scikit-image's find_contours.
 
     Args:
@@ -181,7 +181,7 @@ class SegmentationMask:
         return int(self.label_image.max())
 
     @cached_property
-    def cell_outlines(self) -> list[FloatArray]:
+    def cell_outlines(self) -> list[Float64Array]:
         """Extract cell outlines using the configured outline extractor.
 
         Returns:
@@ -253,7 +253,7 @@ class SegmentationMask:
         return properties
 
     @cached_property
-    def centroids_yx(self) -> FloatArray:
+    def centroids_yx(self) -> Float64Array:
         """Get cell centroids as (y, x) coordinates.
 
         Returns:

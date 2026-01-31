@@ -5,7 +5,7 @@ from enum import Flag, auto
 from typing import TYPE_CHECKING
 
 from .channels import Channel
-from .typing import FloatArray
+from .typing import Float64Array
 
 if TYPE_CHECKING:
     from dataclasses import Field
@@ -86,8 +86,8 @@ class AcquisitionSettings(DimensionValidatorMixin):
     exposure_time_ms: float
     zoom: float | None = None
     binning: str | None = None
-    frame_intervals_ms: FloatArray | None = dimension_field(DimensionFlags.TIMELAPSE)
-    wavelengths_nm: FloatArray | None = dimension_field(DimensionFlags.SPECTRAL)
+    frame_intervals_ms: Float64Array | None = dimension_field(DimensionFlags.TIMELAPSE)
+    wavelengths_nm: Float64Array | None = dimension_field(DimensionFlags.SPECTRAL)
 
 
 @dataclass
