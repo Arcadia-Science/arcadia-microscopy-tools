@@ -12,7 +12,7 @@ from .metadata_structures import (
     AcquisitionSettings,
     ChannelMetadata,
     DimensionFlags,
-    MicroscopeSettings,
+    MicroscopeConfig,
     PhysicalDimensions,
 )
 from .microscopy import ImageMetadata
@@ -177,12 +177,12 @@ class _NikonMetadataParser:
     def _parse_microscope_settings(
         self,
         nd2_channel: nd2.structures.Channel,
-    ) -> MicroscopeSettings:
+    ) -> MicroscopeConfig:
         """Parse microscope settings from nd2 channel metadata."""
         magnification = nd2_channel.microscope.objectiveMagnification
         numerical_aperture = nd2_channel.microscope.objectiveNumericalAperture
 
-        return MicroscopeSettings(
+        return MicroscopeConfig(
             magnification=int(magnification) if magnification is not None else 0,
             numerical_aperture=numerical_aperture or 0.0,
             objective=nd2_channel.microscope.objectiveName,
