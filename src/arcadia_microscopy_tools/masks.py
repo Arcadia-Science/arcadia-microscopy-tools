@@ -134,6 +134,8 @@ class SegmentationMask:
             raise ValueError("mask_image must be a 2D array")
         if np.any(self.mask_image < 0):
             raise ValueError("mask_image must have non-negative values")
+        if self.mask_image.max() == 0:
+            raise ValueError("mask_image contains no cells (all values are 0)")
 
         # Validate intensity_image dict if provided
         if self.intensity_image_dict is not None:
@@ -185,14 +187,16 @@ class SegmentationMask:
 
         Returns:
             List of arrays, one per cell, containing outline coordinates in (y, x) format.
-            Returns empty list if no cells found.
+
+        Raises:
+            ValueError: If no cells are found in the mask.
 
         Note:
             The cellpose method is ~2x faster in general but skimage handles
             vertically oriented cells/outlines better.
         """
         if self.num_cells == 0:
-            return []
+            raise ValueError("No cells found in mask. Cannot extract cell outlines.")
 
         if self.outline_extractor == "cellpose":
             return _extract_outlines_cellpose(self.label_image)
@@ -208,24 +212,16 @@ class SegmentationMask:
 
         For multichannel intensity images, property names are suffixed with the channel name:
         - DAPI: "intensity_mean_DAPI"
-        - FITC: "intensity_mean_FITC"
+        - FITC: "intensity_max_FITC"
 
         Returns:
             Dictionary mapping property names to arrays of values (one per cell).
-            Returns empty dict if no cells found.
+
+        Raises:
+            ValueError: If no cells are found in the mask.
         """
         if self.num_cells == 0:
-            empty_props = (
-                {property_name: np.array([]) for property_name in self.property_names}
-                if self.property_names
-                else {}
-            )
-            # Add empty intensity properties if requested
-            if self.intensity_image_dict and self.intensity_property_names:
-                for channel in self.intensity_image_dict:
-                    for prop_name in self.intensity_property_names:
-                        empty_props[f"{prop_name}_{channel.name}"] = np.array([])
-            return empty_props
+            raise ValueError("No cells found in mask. Cannot extract cell properties.")
 
         # Extract morphological properties (no intensity image needed)
         # Only compute extra properties if explicitly requested
@@ -235,13 +231,13 @@ class SegmentationMask:
         if self.property_names and "volume" in self.property_names:
             extra_props.append(volume)
 
+        # Compute cell properties
         properties = ski.measure.regionprops_table(
             self.label_image,
             properties=self.property_names,
             extra_properties=extra_props,
         )
 
-        # Rename centroid properties to more descriptive names
         if "centroid-0" in properties:
             properties["centroid_y"] = properties.pop("centroid-0")
         if "centroid-1" in properties:
@@ -269,6 +265,9 @@ class SegmentationMask:
             Array of shape (num_cells, 2) with centroid coordinates.
             Each row is [y_coordinate, x_coordinate] for one cell.
             Returns empty (0, 2) array with warning if "centroid" not in property_names.
+
+        Raises:
+            ValueError: If no cells are found in the mask.
         """
         if self.property_names and "centroid" not in self.property_names:
             warnings.warn(
