@@ -34,8 +34,6 @@ DEFAULT_INTENSITY_PROPERTY_NAMES = [
     "intensity_std",
 ]
 
-OutlineExtractorMethod = Literal["cellpose", "skimage"]
-
 
 def _process_mask(
     mask_image: BoolArray | Int64Array,
@@ -68,7 +66,9 @@ def _extract_outlines_cellpose(label_image: Int64Array) -> list[Float64Array]:
     Returns:
         List of arrays, one per cell, containing outline coordinates in (y, x) format.
     """
-    return outlines_list(label_image, multiprocessing=False)
+    outlines = outlines_list(label_image, multiprocessing=False)
+    # Cellpose returns (x, y) coordinates, flip to (y, x) to match standard (row, col) format
+    return [outline[:, [1, 0]] if len(outline) > 0 else outline for outline in outlines]
 
 
 def _extract_outlines_skimage(label_image: Int64Array) -> list[Float64Array]:
@@ -91,8 +91,6 @@ def _extract_outlines_skimage(label_image: Int64Array) -> list[Float64Array]:
         contours = ski.measure.find_contours(cell_mask, level=0.5)
         if contours:
             main_contour = max(contours, key=len)
-            # Flip from (x, y) to (y, x) to match cellpose format
-            main_contour = main_contour[:, [1, 0]]
             outlines.append(main_contour)
         else:
             # Include empty array to maintain alignment with cell labels
@@ -112,7 +110,8 @@ class SegmentationMask:
                 {DAPI: array, FITC: array}
         remove_edge_cells: Whether to remove cells touching image borders. Defaults to True.
         outline_extractor: Outline extraction method ("cellpose" or "skimage").
-            Defaults to "cellpose".
+            Defaults to "cellpose". In practice, cellpose is ~2x faster but skimage handles
+            vertically oriented cell outlines better.
         property_names: List of property names to compute. If None, uses
             DEFAULT_CELL_PROPERTY_NAMES.
         intensity_property_names: List of intensity property names to compute.
@@ -122,7 +121,7 @@ class SegmentationMask:
     mask_image: BoolArray | Int64Array
     intensity_image_dict: Mapping[Channel, UInt16Array] | None = None
     remove_edge_cells: bool = True
-    outline_extractor: OutlineExtractorMethod = "cellpose"
+    outline_extractor: Literal["cellpose", "skimage"] = "cellpose"
     property_names: list[str] | None = field(default=None)
     intensity_property_names: list[str] | None = field(default=None)
 
@@ -133,8 +132,10 @@ class SegmentationMask:
             raise TypeError("mask_image must be a numpy array")
         if self.mask_image.ndim != 2:
             raise ValueError("mask_image must be a 2D array")
-        if self.mask_image.min() < 0:
+        if np.any(self.mask_image < 0):
             raise ValueError("mask_image must have non-negative values")
+        if self.mask_image.max() == 0:
+            raise ValueError("mask_image contains no cells (all values are 0)")
 
         # Validate intensity_image dict if provided
         if self.intensity_image_dict is not None:
@@ -186,14 +187,20 @@ class SegmentationMask:
 
         Returns:
             List of arrays, one per cell, containing outline coordinates in (y, x) format.
-            Returns empty list if no cells found.
+
+        Raises:
+            ValueError: If no cells are found in the mask.
+
+        Note:
+            The cellpose method is ~2x faster in general but skimage handles
+            vertically oriented cells/outlines better.
         """
         if self.num_cells == 0:
-            return []
+            raise ValueError("No cells found in mask. Cannot extract cell outlines.")
 
         if self.outline_extractor == "cellpose":
             return _extract_outlines_cellpose(self.label_image)
-        else:  # Must be "skimage" due to Literal type
+        else:  # must be "skimage" due to Literal type
             return _extract_outlines_skimage(self.label_image)
 
     @cached_property
@@ -205,24 +212,16 @@ class SegmentationMask:
 
         For multichannel intensity images, property names are suffixed with the channel name:
         - DAPI: "intensity_mean_DAPI"
-        - FITC: "intensity_mean_FITC"
+        - FITC: "intensity_max_FITC"
 
         Returns:
             Dictionary mapping property names to arrays of values (one per cell).
-            Returns empty dict if no cells found.
+
+        Raises:
+            ValueError: If no cells are found in the mask.
         """
         if self.num_cells == 0:
-            empty_props = (
-                {property_name: np.array([]) for property_name in self.property_names}
-                if self.property_names
-                else {}
-            )
-            # Add empty intensity properties if requested
-            if self.intensity_image_dict and self.intensity_property_names:
-                for channel in self.intensity_image_dict:
-                    for prop_name in self.intensity_property_names:
-                        empty_props[f"{prop_name}_{channel.name}"] = np.array([])
-            return empty_props
+            raise ValueError("No cells found in mask. Cannot extract cell properties.")
 
         # Extract morphological properties (no intensity image needed)
         # Only compute extra properties if explicitly requested
@@ -232,11 +231,17 @@ class SegmentationMask:
         if self.property_names and "volume" in self.property_names:
             extra_props.append(volume)
 
+        # Compute cell properties
         properties = ski.measure.regionprops_table(
             self.label_image,
             properties=self.property_names,
             extra_properties=extra_props,
         )
+
+        if "centroid-0" in properties:
+            properties["centroid_y"] = properties.pop("centroid-0")
+        if "centroid-1" in properties:
+            properties["centroid_x"] = properties.pop("centroid-1")
 
         # Extract intensity properties for each channel
         if self.intensity_image_dict and self.intensity_property_names:
@@ -260,6 +265,9 @@ class SegmentationMask:
             Array of shape (num_cells, 2) with centroid coordinates.
             Each row is [y_coordinate, x_coordinate] for one cell.
             Returns empty (0, 2) array with warning if "centroid" not in property_names.
+
+        Raises:
+            ValueError: If no cells are found in the mask.
         """
         if self.property_names and "centroid" not in self.property_names:
             warnings.warn(
@@ -270,8 +278,8 @@ class SegmentationMask:
             )
             return np.array([]).reshape(0, 2)
 
-        yc = self.cell_properties["centroid-0"]
-        xc = self.cell_properties["centroid-1"]
+        yc = self.cell_properties["centroid_y"]
+        xc = self.cell_properties["centroid_x"]
         return np.array([yc, xc], dtype=float).T
 
     def convert_properties_to_microns(
@@ -281,34 +289,28 @@ class SegmentationMask:
         """Convert cell properties from pixels to microns.
 
         Applies appropriate scaling factors based on the dimensionality of each property:
-            - Linear measurements (1D): multiplied by pixel_size_um
-            - Area measurements (2D): multiplied by pixel_size_um²
-            - Volume measurements (3D): multiplied by pixel_size_um³
-            - Dimensionless properties: unchanged
+            - Linear measurements (1D): multiplied by pixel_size_um, keys suffixed with "_um"
+            - Area measurements (2D): multiplied by pixel_size_um², keys suffixed with "_um2"
+            - Volume measurements (3D): multiplied by pixel_size_um³, keys suffixed with "_um3"
+            - Dimensionless properties: unchanged, keys unchanged
 
         Args:
             pixel_size_um: Pixel size in microns.
 
         Returns:
-            Dictionary with the same keys as cell_properties but with values
+            Dictionary with keys renamed to include units and values
             converted to micron units where applicable.
 
         Note:
-            Properties like 'label', 'circularity', 'eccentricity', 'solidity',
-            and 'orientation' are dimensionless and remain unchanged.
-            Intensity properties (intensity_mean, intensity_max, etc.) are also
-            dimensionless and remain unchanged.
-            Tensor properties (inertia_tensor, inertia_tensor_eigvals) are scaled
-            as 2D quantities (pixel_size_um²).
+            Properties like 'label', 'circularity', 'eccentricity', 'solidity', and 'orientation'
+            are dimensionless and remain unchanged. Intensity properties (intensity_mean,
+            intensity_max, etc.) are also dimensionless and remain unchanged. Centroid coordinates
+            (centroid_y, centroid_x) remain in pixel coordinates as they represent image positions.
+            Tensor properties (inertia_tensor, inertia_tensor_eigvals) are scaled as 2D quantities
+            (pixel_size_um²) and suffixed with "_um2".
         """
         # Define which properties need which scaling
-        linear_properties = {
-            "perimeter",
-            "axis_major_length",
-            "axis_minor_length",
-            "centroid-0",
-            "centroid-1",
-        }
+        linear_properties = {"perimeter", "axis_major_length", "axis_minor_length"}
         area_properties = {"area", "area_convex"}
         volume_properties = {"volume"}
         tensor_properties = {"inertia_tensor", "inertia_tensor_eigvals"}
@@ -316,13 +318,13 @@ class SegmentationMask:
         converted = {}
         for prop_name, prop_values in self.cell_properties.items():
             if prop_name in linear_properties:
-                converted[prop_name] = prop_values * pixel_size_um
+                converted[f"{prop_name}_um"] = prop_values * pixel_size_um
             elif prop_name in area_properties:
-                converted[prop_name] = prop_values * (pixel_size_um**2)
+                converted[f"{prop_name}_um2"] = prop_values * (pixel_size_um**2)
             elif prop_name in volume_properties:
-                converted[prop_name] = prop_values * (pixel_size_um**3)
+                converted[f"{prop_name}_um3"] = prop_values * (pixel_size_um**3)
             elif prop_name in tensor_properties:
-                converted[prop_name] = prop_values * (pixel_size_um**2)
+                converted[f"{prop_name}_um2"] = prop_values * (pixel_size_um**2)
             else:
                 # Intensity-related, dimensionless, or label - no conversion
                 converted[prop_name] = prop_values
