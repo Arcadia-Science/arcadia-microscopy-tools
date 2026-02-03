@@ -132,7 +132,7 @@ class SegmentationMask:
             raise TypeError("mask_image must be a numpy array")
         if self.mask_image.ndim != 2:
             raise ValueError("mask_image must be a 2D array")
-        if self.mask_image.min() < 0:
+        if np.any(self.mask_image < 0):
             raise ValueError("mask_image must have non-negative values")
 
         # Validate intensity_image dict if provided
