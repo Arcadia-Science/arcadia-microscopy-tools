@@ -281,34 +281,27 @@ class SegmentationMask:
         """Convert cell properties from pixels to microns.
 
         Applies appropriate scaling factors based on the dimensionality of each property:
-            - Linear measurements (1D): multiplied by pixel_size_um
-            - Area measurements (2D): multiplied by pixel_size_um²
-            - Volume measurements (3D): multiplied by pixel_size_um³
-            - Dimensionless properties: unchanged
+            - Linear measurements (1D): multiplied by pixel_size_um, keys suffixed with "_um"
+            - Area measurements (2D): multiplied by pixel_size_um², keys suffixed with "_um2"
+            - Volume measurements (3D): multiplied by pixel_size_um³, keys suffixed with "_um3"
+            - Dimensionless properties: unchanged, keys unchanged
 
         Args:
             pixel_size_um: Pixel size in microns.
 
         Returns:
-            Dictionary with the same keys as cell_properties but with values
+            Dictionary with keys renamed to include units and values
             converted to micron units where applicable.
 
         Note:
-            Properties like 'label', 'circularity', 'eccentricity', 'solidity',
-            and 'orientation' are dimensionless and remain unchanged.
-            Intensity properties (intensity_mean, intensity_max, etc.) are also
-            dimensionless and remain unchanged.
-            Tensor properties (inertia_tensor, inertia_tensor_eigvals) are scaled
-            as 2D quantities (pixel_size_um²).
+            Properties like 'label', 'circularity', 'eccentricity', 'solidity', and 'orientation'
+            are dimensionless and remain unchanged. Intensity properties (intensity_mean,
+            intensity_max, etc.) are also dimensionless and remain unchanged. Tensor properties
+            (inertia_tensor, inertia_tensor_eigvals) are scaled as 2D quantities (pixel_size_um²)
+            and suffixed with "_um2".
         """
         # Define which properties need which scaling
-        linear_properties = {
-            "perimeter",
-            "axis_major_length",
-            "axis_minor_length",
-            "centroid-0",
-            "centroid-1",
-        }
+        linear_properties = {"perimeter", "axis_major_length", "axis_minor_length"}
         area_properties = {"area", "area_convex"}
         volume_properties = {"volume"}
         tensor_properties = {"inertia_tensor", "inertia_tensor_eigvals"}
@@ -316,13 +309,13 @@ class SegmentationMask:
         converted = {}
         for prop_name, prop_values in self.cell_properties.items():
             if prop_name in linear_properties:
-                converted[prop_name] = prop_values * pixel_size_um
+                converted[f"{prop_name}_um"] = prop_values * pixel_size_um
             elif prop_name in area_properties:
-                converted[prop_name] = prop_values * (pixel_size_um**2)
+                converted[f"{prop_name}_um2"] = prop_values * (pixel_size_um**2)
             elif prop_name in volume_properties:
-                converted[prop_name] = prop_values * (pixel_size_um**3)
+                converted[f"{prop_name}_um3"] = prop_values * (pixel_size_um**3)
             elif prop_name in tensor_properties:
-                converted[prop_name] = prop_values * (pixel_size_um**2)
+                converted[f"{prop_name}_um2"] = prop_values * (pixel_size_um**2)
             else:
                 # Intensity-related, dimensionless, or label - no conversion
                 converted[prop_name] = prop_values
