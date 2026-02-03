@@ -70,28 +70,50 @@ class DimensionFlags(Flag):
 
 @dataclass
 class PhysicalDimensions(DimensionValidatorMixin):
-    """Physical dimensions of the imaging volume."""
+    """Nominal values for the physical dimensions of the imaging volume."""
 
-    height_px: int
-    width_px: int
-    pixel_size_um: float
-    thickness_px: int | None = dimension_field(DimensionFlags.Z_STACK)
-    z_step_size_um: float | None = dimension_field(DimensionFlags.Z_STACK)
+    x_size_px: int
+    y_size_px: int
+    xy_pixel_size_um: float
+    z_size_px: int | None = dimension_field(DimensionFlags.Z_STACK)
+    z_step_um: float | None = dimension_field(DimensionFlags.Z_STACK)
+    t_size_px: int | None = dimension_field(DimensionFlags.TIMELAPSE)
+    t_step_ms: float | None = dimension_field(DimensionFlags.TIMELAPSE)
+    w_size_px: int | None = dimension_field(DimensionFlags.SPECTRAL)
+    w_step_nm: float | None = dimension_field(DimensionFlags.SPECTRAL)
+
+
+@dataclass
+class MeasuredDimensions(DimensionValidatorMixin):
+    """Actual measured coordinate values for each dimension.
+
+    These represent the actual values recorded during acquisition,
+    which may differ from nominal spacing due to hardware limitations,
+    timing jitter, or intentional non-uniform sampling.
+    """
+
+    z_values_um: Float64Array | None = dimension_field(DimensionFlags.Z_STACK)
+    t_values_ms: Float64Array | None = dimension_field(DimensionFlags.TIMELAPSE)
+    w_values_nm: Float64Array | None = dimension_field(DimensionFlags.SPECTRAL)
 
 
 @dataclass
 class AcquisitionSettings(DimensionValidatorMixin):
     """Acquisition parameters for image capture."""
 
-    exposure_time_ms: float
+    exposure_time_ms: float | None = None
     zoom: float | None = None
     binning: str | None = None
-    frame_intervals_ms: Float64Array | None = dimension_field(DimensionFlags.TIMELAPSE)
-    wavelengths_nm: Float64Array | None = dimension_field(DimensionFlags.SPECTRAL)
+    pixel_dwell_time_us: float | None = None
+    line_scan_speed_hz: float | None = None
+    line_averaging: int | None = None
+    line_accumulation: int | None = None
+    frame_averaging: int | None = None
+    frame_accumulation: int | None = None
 
 
 @dataclass
-class MicroscopeSettings:
+class MicroscopeConfig:
     """Microscope optical configuration and settings."""
 
     magnification: int
@@ -109,10 +131,11 @@ class ChannelMetadata:
     timestamp: datetime
     dimensions: DimensionFlags
     resolution: PhysicalDimensions
+    measured: MeasuredDimensions
     acquisition: AcquisitionSettings
-    optics: MicroscopeSettings
+    optics: MicroscopeConfig
 
     def __post_init__(self):
         """Validate all sub-components against dimension flags."""
         self.resolution.validate(self.dimensions)
-        self.acquisition.validate(self.dimensions)
+        self.measured.validate(self.dimensions)
