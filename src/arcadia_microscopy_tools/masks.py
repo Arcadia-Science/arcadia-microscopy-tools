@@ -34,8 +34,6 @@ DEFAULT_INTENSITY_PROPERTY_NAMES = [
     "intensity_std",
 ]
 
-OutlineExtractorMethod = Literal["cellpose", "skimage"]
-
 
 def _process_mask(
     mask_image: BoolArray | Int64Array,
@@ -122,7 +120,7 @@ class SegmentationMask:
     mask_image: BoolArray | Int64Array
     intensity_image_dict: Mapping[Channel, UInt16Array] | None = None
     remove_edge_cells: bool = True
-    outline_extractor: OutlineExtractorMethod = "cellpose"
+    outline_extractor: Literal["cellpose", "skimage"] = "cellpose"
     property_names: list[str] | None = field(default=None)
     intensity_property_names: list[str] | None = field(default=None)
 
