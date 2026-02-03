@@ -12,8 +12,8 @@ class Channel:
     """Represents a microscopy imaging channel with optical properties."""
 
     name: str
-    excitation_nm: int | None = None
-    emission_nm: int | None = None
+    excitation_nm: float | None = None
+    emission_nm: float | None = None
     color: HexCode | None = None
 
     # Class-level registry of predefined channels
@@ -82,7 +82,7 @@ class Channel:
     def from_emission_wavelength(
         cls,
         wavelength_nm: float,
-        excitation_nm: int | None = None,
+        excitation_nm: float | None = None,
         name: str | None = None,
     ) -> Channel:
         """Create a channel from an emission wavelength with automatically generated color.
@@ -107,7 +107,7 @@ class Channel:
     def from_excitation_wavelength(
         cls,
         wavelength_nm: float,
-        emission_nm: int | None = None,
+        emission_nm: float | None = None,
         name: str | None = None,
     ) -> Channel:
         """Create a channel from an excitation wavelength with automatically generated color.
