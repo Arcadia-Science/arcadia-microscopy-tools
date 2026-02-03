@@ -238,6 +238,12 @@ class SegmentationMask:
             extra_properties=extra_props,
         )
 
+        # Rename centroid properties to more descriptive names
+        if "centroid-0" in properties:
+            properties["centroid_y"] = properties.pop("centroid-0")
+        if "centroid-1" in properties:
+            properties["centroid_x"] = properties.pop("centroid-1")
+
         # Extract intensity properties for each channel
         if self.intensity_image_dict and self.intensity_property_names:
             for channel, intensities in self.intensity_image_dict.items():
@@ -270,8 +276,8 @@ class SegmentationMask:
             )
             return np.array([]).reshape(0, 2)
 
-        yc = self.cell_properties["centroid-0"]
-        xc = self.cell_properties["centroid-1"]
+        yc = self.cell_properties["centroid_y"]
+        xc = self.cell_properties["centroid_x"]
         return np.array([yc, xc], dtype=float).T
 
     def convert_properties_to_microns(
@@ -296,9 +302,10 @@ class SegmentationMask:
         Note:
             Properties like 'label', 'circularity', 'eccentricity', 'solidity', and 'orientation'
             are dimensionless and remain unchanged. Intensity properties (intensity_mean,
-            intensity_max, etc.) are also dimensionless and remain unchanged. Tensor properties
-            (inertia_tensor, inertia_tensor_eigvals) are scaled as 2D quantities (pixel_size_um²)
-            and suffixed with "_um2".
+            intensity_max, etc.) are also dimensionless and remain unchanged. Centroid coordinates
+            (centroid_y, centroid_x) remain in pixel coordinates as they represent image positions.
+            Tensor properties (inertia_tensor, inertia_tensor_eigvals) are scaled as 2D quantities
+            (pixel_size_um²) and suffixed with "_um2".
         """
         # Define which properties need which scaling
         linear_properties = {"perimeter", "axis_major_length", "axis_minor_length"}
