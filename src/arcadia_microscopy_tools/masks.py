@@ -66,7 +66,9 @@ def _extract_outlines_cellpose(label_image: Int64Array) -> list[Float64Array]:
     Returns:
         List of arrays, one per cell, containing outline coordinates in (y, x) format.
     """
-    return outlines_list(label_image, multiprocessing=False)
+    outlines = outlines_list(label_image, multiprocessing=False)
+    # Cellpose returns (x, y) coordinates, flip to (y, x) to match standard (row, col) format
+    return [outline[:, [1, 0]] if len(outline) > 0 else outline for outline in outlines]
 
 
 def _extract_outlines_skimage(label_image: Int64Array) -> list[Float64Array]:
@@ -89,8 +91,6 @@ def _extract_outlines_skimage(label_image: Int64Array) -> list[Float64Array]:
         contours = ski.measure.find_contours(cell_mask, level=0.5)
         if contours:
             main_contour = max(contours, key=len)
-            # Flip from (x, y) to (y, x) to match cellpose format
-            main_contour = main_contour[:, [1, 0]]
             outlines.append(main_contour)
         else:
             # Include empty array to maintain alignment with cell labels
@@ -110,7 +110,8 @@ class SegmentationMask:
                 {DAPI: array, FITC: array}
         remove_edge_cells: Whether to remove cells touching image borders. Defaults to True.
         outline_extractor: Outline extraction method ("cellpose" or "skimage").
-            Defaults to "cellpose".
+            Defaults to "cellpose". In practice, cellpose is ~2x faster but skimage handles
+            vertically oriented cell outlines better.
         property_names: List of property names to compute. If None, uses
             DEFAULT_CELL_PROPERTY_NAMES.
         intensity_property_names: List of intensity property names to compute.
@@ -185,13 +186,17 @@ class SegmentationMask:
         Returns:
             List of arrays, one per cell, containing outline coordinates in (y, x) format.
             Returns empty list if no cells found.
+
+        Note:
+            The cellpose method is ~2x faster in general but skimage handles
+            vertically oriented cells/outlines better.
         """
         if self.num_cells == 0:
             return []
 
         if self.outline_extractor == "cellpose":
             return _extract_outlines_cellpose(self.label_image)
-        else:  # Must be "skimage" due to Literal type
+        else:  # must be "skimage" due to Literal type
             return _extract_outlines_skimage(self.label_image)
 
     @cached_property
