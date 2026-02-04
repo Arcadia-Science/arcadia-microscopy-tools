@@ -140,7 +140,7 @@ class _NikonMetadataParser:
         # Spatial dimensions
         x_size_px, y_size_px, z_size_px = nd2_channel.volume.voxelCount
         x_step_um, y_step_um, z_step_um = nd2_channel.volume.axesCalibration
-        xy_pixel_size_um = (x_step_um + y_step_um) / 2
+        xy_step_um = (x_step_um + y_step_um) / 2
 
         # Time dimension - extract from events if available
         t_size_px = None
@@ -152,7 +152,7 @@ class _NikonMetadataParser:
         return NominalDimensions(
             x_size_px=x_size_px,
             y_size_px=y_size_px,
-            xy_pixel_size_um=xy_pixel_size_um,
+            xy_step_um=xy_step_um,
             z_size_px=z_size_px if self.dimensions.is_zstack else None,
             z_step_um=z_step_um if self.dimensions.is_zstack else None,
             t_size_px=t_size_px if self.dimensions.is_timelapse else None,

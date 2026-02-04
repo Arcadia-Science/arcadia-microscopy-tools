@@ -4,7 +4,7 @@ example-multichannel.nd2:
       y_size_px: 256
       x_size_px: 256
       z_size_px: 1
-      xy_pixel_size_um: 0.323390342594048
+      xy_step_um: 0.323390342594048
       z_step_um: 1.0
     optics:
       magnification: 20.0
@@ -18,7 +18,7 @@ example-multichannel.nd2:
       y_size_px: 256
       x_size_px: 256
       z_size_px: 1
-      xy_pixel_size_um: 0.323390342594048
+      xy_step_um: 0.323390342594048
       z_step_um: 1.0
     optics:
       magnification: 20.0
@@ -32,7 +32,7 @@ example-multichannel.nd2:
       y_size_px: 256
       x_size_px: 256
       z_size_px: 1
-      xy_pixel_size_um: 0.323390342594048
+      xy_step_um: 0.323390342594048
       z_step_um: 1.0
     optics:
       magnification: 20.0
@@ -46,7 +46,7 @@ example-multichannel.nd2:
       y_size_px: 256
       x_size_px: 256
       z_size_px: 1
-      xy_pixel_size_um: 0.323390342594048
+      xy_step_um: 0.323390342594048
       z_step_um: 1.0
     optics:
       magnification: 20.0
@@ -62,7 +62,7 @@ example-timelapse.nd2:
       y_size_px: 64
       x_size_px: 64
       z_size_px: 1
-      xy_pixel_size_um: 0.325
+      xy_step_um: 0.325
       z_step_um: 1.0
     optics:
       magnification: 40.0
@@ -78,7 +78,7 @@ example-zstack.nd2:
       y_size_px: 128
       x_size_px: 128
       z_size_px: 11
-      xy_pixel_size_um: 0.323390342594048
+      xy_step_um: 0.323390342594048
       z_step_um: 6.0
     optics:
       magnification: 20.0
