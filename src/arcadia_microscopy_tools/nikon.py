@@ -4,7 +4,6 @@ from datetime import datetime
 from pathlib import Path
 
 import nd2
-import numpy as np
 import pandas as pd
 from nd2.structures import TextInfo
 
@@ -91,7 +90,7 @@ class _NikonMetadataParser:
         if channel is None:
             channel = Channel.from_optical_config_name(nd2_channel.channel.name)
 
-        resolution = self._parse_physical_dimensions(nd2_channel)
+        resolution = self._parse_nominal_dimensions(nd2_channel)
         measured = self._parse_measured_dimensions()
         acquisition = self._parse_acquisition_settings(nd2_channel, channel_index)
         optics = self._parse_microscope_settings(nd2_channel)
@@ -136,14 +135,19 @@ class _NikonMetadataParser:
         timestamp = self.text_info["date"]
         return datetime.strptime(timestamp, "%m/%d/%Y %I:%M:%S %p")
 
-    def _parse_physical_dimensions(
+    def _parse_nominal_dimensions(
         self,
         nd2_channel: nd2.structures.Channel,
     ) -> NominalDimensions:
-        """Parse physical dimensions from nd2 channel metadata."""
+        """Parse nominal dimensions from nd2 channel metadata."""
+        # Spatial dimensions
         x_size_px, y_size_px, z_size_px = nd2_channel.volume.voxelCount
         x_step_um, y_step_um, z_step_um = nd2_channel.volume.axesCalibration
         xy_pixel_size_um = (x_step_um + y_step_um) / 2
+
+        # Time dimension (fragile)
+        t_size_px = self.events[-1].get("T Index")
+        t_step_ms = self.events[0].get("Exposure Time [ms]")
 
         return NominalDimensions(
             x_size_px=x_size_px,
@@ -151,10 +155,10 @@ class _NikonMetadataParser:
             xy_pixel_size_um=xy_pixel_size_um,
             z_size_px=z_size_px if self.dimensions.is_zstack else None,
             z_step_um=z_step_um if self.dimensions.is_zstack else None,
-            t_size_px=-1,
-            t_step_ms=-1,
-            w_size_px=-1,
-            w_step_nm=-1,
+            t_size_px=t_size_px if self.dimensions.is_timelapse else None,
+            t_step_ms=t_step_ms if self.dimensions.is_timelapse else None,
+            w_size_px=None,
+            w_step_nm=None,
         )
 
     def _parse_measured_dimensions(self) -> MeasuredDimensions:
