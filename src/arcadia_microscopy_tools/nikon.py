@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import re
 from datetime import datetime
 from pathlib import Path
@@ -136,10 +135,7 @@ class _NikonMetadataParser:
         timestamp = self.text_info["date"]
         return datetime.strptime(timestamp, "%m/%d/%Y %I:%M:%S %p")
 
-    def _parse_nominal_dimensions(
-        self,
-        nd2_channel: nd2.structures.Channel,
-    ) -> NominalDimensions:
+    def _parse_nominal_dimensions(self, nd2_channel: nd2.structures.Channel) -> NominalDimensions:
         """Parse nominal dimensions from nd2 channel metadata."""
         # Spatial dimensions
         x_size_px, y_size_px, z_size_px = nd2_channel.volume.voxelCount
@@ -150,7 +146,7 @@ class _NikonMetadataParser:
         t_size_px = None
         t_step_ms = None
         if self.events:
-            t_size_px = self.events[-1].get("T Index")
+            t_size_px = self.sizes.get("T")
             t_step_ms = self.events[0].get("Exposure Time [ms]")
 
         return NominalDimensions(
@@ -244,7 +240,9 @@ class _NikonMetadataParser:
 
         Not yet implemented - spectral data extraction needs additional testing.
         """
-        raise NotImplementedError("Wavelength extraction for spectral imaging is not yet implemented")
+        raise NotImplementedError(
+            "Wavelength extraction for spectral imaging is not yet implemented"
+        )
 
     def _parse_acquisition_settings(
         self,
@@ -269,10 +267,7 @@ class _NikonMetadataParser:
             frame_accumulation=None,
         )
 
-    def _parse_microscope_settings(
-        self,
-        nd2_channel: nd2.structures.Channel,
-    ) -> MicroscopeConfig:
+    def _parse_microscope_settings(self, nd2_channel: nd2.structures.Channel) -> MicroscopeConfig:
         """Parse microscope settings from nd2 channel metadata."""
         magnification = nd2_channel.microscope.objectiveMagnification
         numerical_aperture = nd2_channel.microscope.objectiveNumericalAperture
@@ -335,7 +330,29 @@ class _NikonMetadataParser:
         return None
 
     def _parse_power(self, plane_text: str) -> float | None:
-        """Parse laser power percentage from plane text."""
+        """Parse laser power percentage from plane text.
+
+        Parsing the power is tricky:
+            1. Units are percentages and total power is unknown
+            2. Not trivial to determine the light source for non-fluorescence
+               channels (e.g. BRIGHTFIELD, DIC)
+
+            Example snippet of plane_text from tests/data/example-multichannel.nd2:
+                Plane #1:
+                    Name: Mono
+                    Component Count: 1
+                    Modality: Widefield Fluorescence
+                    Camera Settings:   Exposure: 20 ms
+                    ...
+                    LUN-F, MultiLaser(LUN-F):
+                        Line:3; ExW:561; Power: 82.5; On
+
+                    Lida, Shutter(Lida): Active
+                    Lida, MultiLaser(Lida):
+                        Line:1; ExW:450; Power:  5.0; On
+                        Line:2; ExW:550; Power:  5.0; On
+                        Line:3; ExW:640; Power:  5.0; On
+        """
         pattern = r"Power:\s*(-?\d+(\.\d*)?|-?\.\d+)"
         for line in plane_text.splitlines():
             if "Power" in line:
