@@ -37,8 +37,8 @@ class DimensionFlags(Flag):
 
     SPATIAL_2D = 0
     MULTICHANNEL = auto()
-    TIMELAPSE = auto()
     Z_STACK = auto()
+    TIMELAPSE = auto()
     SPECTRAL = auto()
     RGB = auto()
     MONTAGE = auto()
@@ -48,12 +48,12 @@ class DimensionFlags(Flag):
         return bool(self & DimensionFlags.MULTICHANNEL)
 
     @property
-    def is_timelapse(self) -> bool:
-        return bool(self & DimensionFlags.TIMELAPSE)
-
-    @property
     def is_zstack(self) -> bool:
         return bool(self & DimensionFlags.Z_STACK)
+
+    @property
+    def is_timelapse(self) -> bool:
+        return bool(self & DimensionFlags.TIMELAPSE)
 
     @property
     def is_spectral(self) -> bool:
