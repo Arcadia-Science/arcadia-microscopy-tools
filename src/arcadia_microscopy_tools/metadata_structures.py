@@ -69,7 +69,7 @@ class DimensionFlags(Flag):
 
 
 @dataclass
-class PhysicalDimensions(DimensionValidatorMixin):
+class NominalDimensions(DimensionValidatorMixin):
     """Nominal values for the physical dimensions of the imaging volume."""
 
     x_size_px: int
@@ -130,7 +130,7 @@ class ChannelMetadata:
     channel: Channel
     timestamp: datetime
     dimensions: DimensionFlags
-    resolution: PhysicalDimensions
+    resolution: NominalDimensions
     measured: MeasuredDimensions
     acquisition: AcquisitionSettings
     optics: MicroscopeConfig
