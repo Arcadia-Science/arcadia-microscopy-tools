@@ -5,6 +5,7 @@ from pathlib import Path
 
 import nd2
 import numpy as np
+import pandas as pd
 from nd2.structures import TextInfo
 
 from .channels import Channel
@@ -91,7 +92,7 @@ class _NikonMetadataParser:
             channel = Channel.from_optical_config_name(nd2_channel.channel.name)
 
         resolution = self._parse_physical_dimensions(nd2_channel)
-        measured = self._parse_measured_dimensions(nd2_channel)
+        measured = self._parse_measured_dimensions()
         acquisition = self._parse_acquisition_settings(nd2_channel, channel_index)
         optics = self._parse_microscope_settings(nd2_channel)
 
@@ -156,20 +157,66 @@ class _NikonMetadataParser:
             w_step_nm=-1,
         )
 
-    def _parse_measured_dimensions(
-        self,
-        nd2_channel: nd2.structures.Channel,
-    ) -> MeasuredDimensions:
+    def _parse_measured_dimensions(self) -> MeasuredDimensions:
         """"""
+        z_values_um = None
+        t_values_ms = None
+        w_values_nm = None
 
-        # z_values_um = self._parse_z_steps() if self.dimensions.is_zstack else None
-        # t_values_ms = self._parse_frame_intervals() if self.dimensions.is_timelapse else None
+        events_dataframe = pd.DataFrame(self.events)
+
+        if len(events_dataframe) < 2:
+            return MeasuredDimensions(
+                z_values_um=z_values_um,
+                t_values_ms=t_values_ms,
+                w_values_nm=w_values_nm,
+            )
+
+        if self.dimensions.is_zstack:
+            z_values_um = self._extract_z_coordinates(events_dataframe)
+
+        if self.dimensions.is_timelapse:
+            t_values_ms = self._extract_time_coordinates(events_dataframe)
+
+        if self.dimensions.is_spectral:
+            w_values_nm = self._extract_wavelength_coordinates(events_dataframe)
 
         return MeasuredDimensions(
-            z_values_um=None,
-            t_values_ms=None,
-            w_values_nm=None,
+            z_values_um=z_values_um,
+            t_values_ms=t_values_ms,
+            w_values_nm=w_values_nm,
         )
+
+    def _extract_z_coordinates(self, events_dataframe: pd.DataFrame) -> Float64Array:
+        """"""
+        z_columns = ["Z Coord [µm]", "Ti2 ZDrive [µm]", "NIDAQ Piezo Z (name: Piezo Z) [µm]"]
+
+        # Find which z column exists and has variation
+        dynamic_z_column = None
+        for z_col in z_columns:
+            if z_col in events_dataframe.columns and events_dataframe[z_col].nunique() > 1:
+                dynamic_z_column = z_col
+                break
+
+        if dynamic_z_column is None:
+            raise ValueError("No varying Z coordinate column found in events")
+
+        z_values_um = events_dataframe[dynamic_z_column].to_numpy(dtype=float)
+        z_center_index = events_dataframe["Z-Series"].abs().idxmin()
+        z_center = events_dataframe.loc[z_center_index, dynamic_z_column]
+        z_values_um -= z_center
+
+        return z_values_um
+
+    def _extract_time_coordinates(self, events_dataframe: pd.DataFrame) -> Float64Array:
+        """"""
+        t_values_s = events_dataframe["Time [s]"].to_numpy(dtype=float)
+        t_values_ms = 1e3 * (t_values_s - t_values_s.min())
+        return t_values_ms
+
+    def _extract_wavelength_coordinates(self, events_dataframe: pd.DataFrame) -> Float64Array:
+        """"""
+        raise NotImplementedError("")
 
     def _parse_acquisition_settings(
         self,
