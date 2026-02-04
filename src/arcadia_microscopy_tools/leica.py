@@ -13,8 +13,9 @@ from .metadata_structures import (
     AcquisitionSettings,
     ChannelMetadata,
     DimensionFlags,
-    MicroscopeSettings,
-    PhysicalDimensions,
+    MeasuredDimensions,
+    MicroscopeConfig,
+    NominalDimensions,
 )
 from .microscopy import ImageMetadata
 from .typing import Float64Array
@@ -34,8 +35,16 @@ def _as_float(s: str, *, ctx: str = "") -> float:
         raise ValueError(f"Expected float{(' for ' + ctx) if ctx else ''}, got {s!r}") from ex
 
 
+def _get_required_attr(element: ET.Element, name: str) -> str:
+    """Get a required attribute from an XML element"""
+    value = element.get(name)
+    if value is None:
+        raise ValueError(f"Missing attribute {name!r} on <{element.tag}>")
+    return value
+
+
 @dataclass(frozen=True)
-class LifChannel:
+class _LifChannel:
     """Recreated from liffile where it is not exposed and ignores properties"""
 
     data_type: int
@@ -50,9 +59,42 @@ class LifChannel:
     name_of_measured_quantity: str
     properties: Mapping[str, str]
 
+    @classmethod
+    def from_xml(cls, element: ET.Element) -> _LifChannel:
+        """Parse a _LifChannel from a <ChannelDescription> XML element.
+
+        Args:
+            element: The <ChannelDescription> XML element
+
+        Returns:
+            _LifChannel object parsed from XML
+        """
+        # Extract channel properties
+        props: dict[str, str] = {}
+        for prop in element.findall("ChannelProperty"):
+            key_element = prop.find("Key")
+            value_element = prop.find("Value")
+            if key_element is None or value_element is None or key_element.text is None:
+                continue
+            props[key_element.text] = value_element.text or ""
+
+        return cls(
+            data_type=_as_int(_get_required_attr(element, "DataType"), ctx="DataType"),
+            channel_tag=_as_int(_get_required_attr(element, "ChannelTag"), ctx="ChannelTag"),
+            resolution=_as_int(_get_required_attr(element, "Resolution"), ctx="Resolution"),
+            lut_name=_get_required_attr(element, "LUTName"),
+            bytes_inc=_as_int(_get_required_attr(element, "BytesInc"), ctx="BytesInc"),
+            bit_inc=_as_int(_get_required_attr(element, "BitInc"), ctx="BitInc"),
+            min_value=_as_float(_get_required_attr(element, "Min"), ctx="Min"),
+            max_value=_as_float(_get_required_attr(element, "Max"), ctx="Max"),
+            unit=element.get("Unit", ""),
+            name_of_measured_quantity=element.get("NameOfMeasuredQuantity", ""),
+            properties=props,
+        )
+
 
 @dataclass(frozen=True)
-class LifDimension:
+class _LifDimension:
     """Recreated from liffile where it is not exposed"""
 
     dim_id: int
@@ -67,11 +109,34 @@ class LifDimension:
     def step(self) -> float:
         return self.length / self.number_of_elements
 
+    @classmethod
+    def from_xml(cls, element: ET.Element) -> _LifDimension:
+        """Parse a _LifDimension from a <DimensionDescription> XML element.
+
+        Args:
+            element: The <DimensionDescription> XML element
+
+        Returns:
+            _LifDimension object parsed from XML
+        """
+        return cls(
+            dim_id=_as_int(_get_required_attr(element, "DimID"), ctx="DimID"),
+            number_of_elements=_as_int(
+                _get_required_attr(element, "NumberOfElements"),
+                ctx="NumberOfElements",
+            ),
+            origin=_as_float(_get_required_attr(element, "Origin"), ctx="Origin"),
+            length=_as_float(_get_required_attr(element, "Length"), ctx="Length"),
+            unit=_get_required_attr(element, "Unit"),
+            bit_inc=_as_int(_get_required_attr(element, "BitInc"), ctx="BitInc"),
+            bytes_inc=_as_int(_get_required_attr(element, "BytesInc"), ctx="BytesInc"),
+        )
+
 
 @dataclass(frozen=True)
 class ImageDescription:
-    lif_channels: list[LifChannel]
-    lif_dimensions: list[LifDimension]
+    lif_channels: list[_LifChannel]
+    lif_dimensions: list[_LifDimension]
 
 
 def list_image_names(lif_path: Path) -> list[str]:
@@ -150,12 +215,12 @@ class _LeicaMetadataParser:
                     f"Missing image description metadata for image '{self.image_name}' "
                     f"in {self.lif_path}"
                 )
-            self.image_description = self.parse_image_description(image_description_element)
+            self.image_description = self._parse_image_description(image_description_element)
 
             channel_metadata_list = self._parse_all_channels()
             return ImageMetadata(self.sizes, channel_metadata_list)
 
-    def parse_image_description(self, image_description_element: ET.Element) -> ImageDescription:
+    def _parse_image_description(self, image_description_element: ET.Element) -> ImageDescription:
         """Parse the ImageDescription XML element into structured data.
 
         Args:
@@ -174,78 +239,19 @@ class _LeicaMetadataParser:
 
         return ImageDescription(lif_channels, lif_dimensions)
 
-    def _parse_channels_from_xml(self, channels_element: ET.Element) -> list[LifChannel]:
-        """Parse channel descriptions from the <Channels> XML element.
+    def _parse_channels_from_xml(self, channels_element: ET.Element) -> list[_LifChannel]:
+        """Parse channel descriptions from the <Channels> XML element"""
+        return [
+            _LifChannel.from_xml(element)
+            for element in channels_element.findall("ChannelDescription")
+        ]
 
-        Args:
-            channels_element: The <Channels> XML element
-
-        Returns:
-            List of LifChannel objects
-        """
-        lif_channels: list[LifChannel] = []
-        for channel_element in channels_element.findall("ChannelDescription"):
-            # Extract channel properties
-            props: dict[str, str] = {}
-            for prop in channel_element.findall("ChannelProperty"):
-                key_element = prop.find("Key")
-                value_element = prop.find("Value")
-                if key_element is None or value_element is None or key_element.text is None:
-                    continue
-                props[key_element.text] = value_element.text or ""
-
-            # Build LifChannel from XML attributes
-            lif_channels.append(
-                LifChannel(
-                    data_type=_as_int(self._required(channel_element, "DataType"), ctx="DataType"),
-                    channel_tag=_as_int(
-                        self._required(channel_element, "ChannelTag"), ctx="ChannelTag"
-                    ),
-                    resolution=_as_int(
-                        self._required(channel_element, "Resolution"), ctx="Resolution"
-                    ),
-                    lut_name=self._required(channel_element, "LUTName"),
-                    bytes_inc=_as_int(self._required(channel_element, "BytesInc"), ctx="BytesInc"),
-                    bit_inc=_as_int(self._required(channel_element, "BitInc"), ctx="BitInc"),
-                    min_value=_as_float(self._required(channel_element, "Min"), ctx="Min"),
-                    max_value=_as_float(self._required(channel_element, "Max"), ctx="Max"),
-                    unit=channel_element.get("Unit", ""),
-                    name_of_measured_quantity=channel_element.get("NameOfMeasuredQuantity", ""),
-                    properties=props,
-                )
-            )
-
-        return lif_channels
-
-    def _parse_dimensions_from_xml(self, dimensions_element: ET.Element) -> list[LifDimension]:
-        """Parse dimension descriptions from the <Dimensions> XML element.
-
-        Args:
-            dimensions_element: The <Dimensions> XML element
-
-        Returns:
-            List of LifDimension objects
-        """
-        lif_dimensions: list[LifDimension] = []
-        for dimension_element in dimensions_element.findall("DimensionDescription"):
-            lif_dimensions.append(
-                LifDimension(
-                    dim_id=_as_int(self._required(dimension_element, "DimID"), ctx="DimID"),
-                    number_of_elements=_as_int(
-                        self._required(dimension_element, "NumberOfElements"),
-                        ctx="NumberOfElements",
-                    ),
-                    origin=_as_float(self._required(dimension_element, "Origin"), ctx="Origin"),
-                    length=_as_float(self._required(dimension_element, "Length"), ctx="Length"),
-                    unit=self._required(dimension_element, "Unit"),
-                    bit_inc=_as_int(self._required(dimension_element, "BitInc"), ctx="BitInc"),
-                    bytes_inc=_as_int(
-                        self._required(dimension_element, "BytesInc"), ctx="BytesInc"
-                    ),
-                )
-            )
-
-        return lif_dimensions
+    def _parse_dimensions_from_xml(self, dimensions_element: ET.Element) -> list[_LifDimension]:
+        """Parse dimension descriptions from the <Dimensions> XML element"""
+        return [
+            _LifDimension.from_xml(element)
+            for element in dimensions_element.findall("DimensionDescription")
+        ]
 
     def _parse_all_channels(self) -> list[ChannelMetadata]:
         """Parse metadata for all channels in the LIF image."""
@@ -266,14 +272,15 @@ class _LeicaMetadataParser:
 
     def _parse_channel_metadata(
         self,
-        lif_channel: LifChannel,
+        lif_channel: _LifChannel,
         channel: Channel | None = None,
     ) -> ChannelMetadata:
         """Parse metadata for a specific channel."""
         if channel is None:
             channel = self._infer_channel(lif_channel)
 
-        resolution = self._parse_physical_dimensions()
+        resolution = self._parse_nominal_dimensions()
+        measured = self._parse_measured_dimensions()
         acquisition = self._parse_acquisition_settings(channel)
         optics = self._parse_microscope_settings()
 
@@ -282,11 +289,12 @@ class _LeicaMetadataParser:
             timestamp=self.timestamp,
             dimensions=self.dimensions,
             resolution=resolution,
+            measured=measured,
             acquisition=acquisition,
             optics=optics,
         )
 
-    def _infer_channel(self, lif_channel: LifChannel) -> Channel:
+    def _infer_channel(self, lif_channel: _LifChannel) -> Channel:
         """Infer channel type from detector metadata.
 
         Args:
@@ -347,6 +355,9 @@ class _LeicaMetadataParser:
         if "S" in self.sizes and self.sizes["S"] > 1:
             dimensions |= DimensionFlags.RGB
 
+        if "λ" in self.sizes and self.sizes["λ"] > 1:
+            dimensions |= DimensionFlags.SPECTRAL
+
         if "Λ" in self.sizes and self.sizes["Λ"] > 1:
             dimensions |= DimensionFlags.SPECTRAL
 
@@ -364,8 +375,8 @@ class _LeicaMetadataParser:
                 f"Could not parse timestamp for image '{self.image_name}' in {self.lif_path}"
             ) from ex
 
-    def _parse_physical_dimensions(self) -> PhysicalDimensions:
-        """Parse physical dimensions from LIF metadata.
+    def _parse_nominal_dimensions(self) -> NominalDimensions:
+        """Parse nominal dimensions from LIF metadata.
 
         Dimension ID legend:
             "X": dim_id = 1
@@ -380,39 +391,69 @@ class _LeicaMetadataParser:
         # Find and validate X and Y dimensions
         lif_dimension_x = self._find_dimension(1)
         lif_dimension_y = self._find_dimension(2)
-        self._validate_dimension(lif_dimension_x, "X", self.sizes["X"])
-        self._validate_dimension(lif_dimension_y, "Y", self.sizes["Y"])
+        self._validate_dimension(lif_dimension_x, "X", self.sizes["X"], "m")
+        self._validate_dimension(lif_dimension_y, "Y", self.sizes["Y"], "m")
 
         # Calculate pixel size using step property and convert to microns
-        pixel_size_um_x = 1e6 * lif_dimension_x.step
-        pixel_size_um_y = 1e6 * lif_dimension_y.step
-        pixel_size_um = (pixel_size_um_x + pixel_size_um_y) / 2
+        x_step_um = 1e6 * lif_dimension_x.step
+        y_step_um = 1e6 * lif_dimension_y.step
+        xy_step_um = (x_step_um + y_step_um) / 2
 
-        # Calculate thickness and step size for z
-        thickness_px = None
-        z_step_size_um = None
+        # Z dimension
+        z_size_px = None
+        z_step_um = None
         if self.dimensions.is_zstack:
             lif_dimension_z = self._find_dimension(3)
-            self._validate_dimension(lif_dimension_z, "Z", self.sizes["Z"])
-            thickness_px = lif_dimension_z.number_of_elements
-            z_step_size_um = 1e6 * lif_dimension_z.step
+            self._validate_dimension(lif_dimension_z, "Z", self.sizes["Z"], "m")
+            z_size_px = lif_dimension_z.number_of_elements
+            z_step_um = 1e6 * lif_dimension_z.step
 
-        return PhysicalDimensions(
-            height_px=self.sizes["Y"],
-            width_px=self.sizes["X"],
-            pixel_size_um=pixel_size_um,
-            thickness_px=thickness_px,
-            z_step_size_um=z_step_size_um,
+        # T dimension
+        t_size_px = None
+        t_step_ms = None
+        if self.dimensions.is_timelapse:
+            lif_dimension_t = self._find_dimension(4)
+            self._validate_dimension(lif_dimension_t, "T", self.sizes["T"], "s")
+            t_size_px = lif_dimension_t.number_of_elements
+            t_step_ms = 1e3 * lif_dimension_t.step  # Convert s to ms
+
+        # Wavelength dimension (Λ or λ)
+        w_size_px = None
+        w_step_nm = None
+        if self.dimensions.is_spectral:
+            # Try emission wavelength (λ, dim_id=5) first, then excitation (Λ, dim_id=9)
+            lif_dimension_w = None
+            if "Λ" in self.sizes and self.sizes["Λ"] > 1:
+                lif_dimension_w = self._find_dimension(9)
+                self._validate_dimension(lif_dimension_w, "Λ", self.sizes["Λ"], "m")
+            elif "λ" in self.sizes and self.sizes["λ"] > 1:
+                lif_dimension_w = self._find_dimension(5)
+                self._validate_dimension(lif_dimension_w, "λ", self.sizes["λ"], "m")
+
+            if lif_dimension_w is not None:
+                w_size_px = lif_dimension_w.number_of_elements
+                w_step_nm = 1e9 * lif_dimension_w.step  # Convert m to nm
+
+        return NominalDimensions(
+            x_size_px=lif_dimension_x.number_of_elements,
+            y_size_px=lif_dimension_y.number_of_elements,
+            xy_step_um=xy_step_um,
+            z_size_px=z_size_px,
+            z_step_um=z_step_um,
+            t_size_px=t_size_px,
+            t_step_ms=t_step_ms,
+            w_size_px=w_size_px,
+            w_step_nm=w_step_nm,
         )
 
-    def _find_dimension(self, dim_id: int) -> LifDimension:
-        """Find a dimension by its ID.
+    def _find_dimension(self, dim_id: int) -> _LifDimension:
+        """Find a _LifDimension by its ID.
 
         Args:
             dim_id: The dimension ID to find
 
         Returns:
-            The LifDimension with the given ID
+            The _LifDimension with the given ID
 
         Raises:
             ValueError: If dimension is not found
@@ -425,7 +466,11 @@ class _LeicaMetadataParser:
         return dimension
 
     def _validate_dimension(
-        self, dimension: LifDimension, dim_name: str, expected_size: int
+        self,
+        dimension: _LifDimension,
+        dim_name: str,
+        expected_size: int,
+        expected_unit: str,
     ) -> None:
         """Validate a dimension's unit and size.
 
@@ -437,8 +482,10 @@ class _LeicaMetadataParser:
         Raises:
             ValueError: If validation fails
         """
-        if dimension.unit != "m":
-            raise ValueError(f"Expected {dim_name} dimension unit 'm' but got: {dimension.unit}")
+        if dimension.unit != expected_unit:
+            raise ValueError(
+                f"Expected {dim_name} dimension unit '{expected_unit}' but got: {dimension.unit}"
+            )
 
         if dimension.number_of_elements != expected_size:
             raise ValueError(
@@ -446,34 +493,49 @@ class _LeicaMetadataParser:
                 f"but sizes has {expected_size}"
             )
 
+    def _parse_measured_dimensions(self) -> MeasuredDimensions:
+        """Parse measured dimension values from LIF metadata.
+
+        Currently returns None for all dimensions as LIF files typically don't
+        store actual measured positions separately from nominal values.
+        """
+        return MeasuredDimensions(
+            z_values_um=None,
+            t_values_ms=None,
+            w_values_nm=None,
+        )
+
     def _parse_acquisition_settings(self, channel: Channel) -> AcquisitionSettings:
         """Parse acquisition settings from LIF metadata."""
-        wavelengths_nm = None
-        if self.dimensions.is_spectral or channel in (CARS, SRS):
-            extractor = _WavelengthExtractor(self.image, self.sizes)
-            wavelengths_nm = extractor.extract_wavelengths(channel)
 
         microscope_data = self.image.attrs.get("HardwareSetting", {}).get(
             "ATLConfocalSettingDefinition", {}
         )
 
-        # Extract pixel dwell time and calculate exposure time
-        exposure_time_ms = -1
-        pixel_dwell_time_s = microscope_data.get("PixelDwellTime")
-        if pixel_dwell_time_s is not None:
-            exposure_time_ms = 1e3 * float(pixel_dwell_time_s) * self.sizes["X"] * self.sizes["Y"]
-
         zoom = float(microscope_data.get("Zoom", -1.0))
+        pixel_dwell_time_us = 1e-6 * float(microscope_data.get("PixelDwellTime"))
+        line_scan_speed_hz = float(microscope_data.get("Speed"))
+        line_averaging = int(microscope_data.get("LineAverage"))
+        line_accumulation = int(microscope_data.get("Line_Accumulation"))
+        frame_averaging = int(microscope_data.get("FrameAverage"))
+        frame_accumulation = int(microscope_data.get("FrameAccumulation"))
+
+        # Calculate exposure time from per-pixel dwell time and spatial dimensions
+        exposure_time_ms = 1e3 * float(pixel_dwell_time_us) * self.sizes["X"] * self.sizes["Y"]
 
         return AcquisitionSettings(
             exposure_time_ms=exposure_time_ms,
             zoom=zoom,
             binning=None,
-            frame_intervals_ms=None,
-            wavelengths_nm=wavelengths_nm,
+            pixel_dwell_time_us=pixel_dwell_time_us,
+            line_scan_speed_hz=line_scan_speed_hz,
+            line_averaging=line_averaging,
+            line_accumulation=line_accumulation,
+            frame_averaging=frame_averaging,
+            frame_accumulation=frame_accumulation,
         )
 
-    def _parse_microscope_settings(self) -> MicroscopeSettings:
+    def _parse_microscope_settings(self) -> MicroscopeConfig:
         """Parse microscope settings from LIF metadata."""
         microscope_data = self.image.attrs.get("HardwareSetting", {}).get(
             "ATLConfocalSettingDefinition", {}
@@ -483,20 +545,13 @@ class _LeicaMetadataParser:
         numerical_aperture = float(microscope_data.get("NumericalAperture", -1.0))
         objective = microscope_data.get("ObjectiveName")
 
-        return MicroscopeSettings(
+        return MicroscopeConfig(
             magnification=magnification,
             numerical_aperture=numerical_aperture,
             objective=objective,
             light_source=None,
             power_mw=None,
         )
-
-    @staticmethod
-    def _required(e: ET.Element, name: str) -> str:
-        v = e.get(name)
-        if v is None:
-            raise ValueError(f"Missing attribute {name!r} on <{e.tag}>")
-        return v
 
 
 class _WavelengthExtractor:
