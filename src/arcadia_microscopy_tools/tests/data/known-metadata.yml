@@ -1,11 +1,11 @@
 example-multichannel.nd2:
   BRIGHTFIELD:
     resolution:
-      height_px: 256
-      width_px: 256
-      thickness_px: 1
-      pixel_size_um: 0.323390342594048
-      z_step_size_um: 1.0
+      y_size_px: 256
+      x_size_px: 256
+      z_size_px: 1
+      xy_pixel_size_um: 0.323390342594048
+      z_step_um: 1.0
     optics:
       magnification: 20.0
       numerical_aperture: 0.75
@@ -15,11 +15,11 @@ example-multichannel.nd2:
       exposure_time_ms: 20.0
   DAPI:
     resolution:
-      height_px: 256
-      width_px: 256
-      thickness_px: 1
-      pixel_size_um: 0.323390342594048
-      z_step_size_um: 1.0
+      y_size_px: 256
+      x_size_px: 256
+      z_size_px: 1
+      xy_pixel_size_um: 0.323390342594048
+      z_step_um: 1.0
     optics:
       magnification: 20.0
       numerical_aperture: 0.75
@@ -29,11 +29,11 @@ example-multichannel.nd2:
       exposure_time_ms: 1000.0
   FITC:
     resolution:
-      height_px: 256
-      width_px: 256
-      thickness_px: 1
-      pixel_size_um: 0.323390342594048
-      z_step_size_um: 1.0
+      y_size_px: 256
+      x_size_px: 256
+      z_size_px: 1
+      xy_pixel_size_um: 0.323390342594048
+      z_step_um: 1.0
     optics:
       magnification: 20.0
       numerical_aperture: 0.75
@@ -43,11 +43,11 @@ example-multichannel.nd2:
       exposure_time_ms: 1000.0
   TRITC:
     resolution:
-      height_px: 256
-      width_px: 256
-      thickness_px: 1
-      pixel_size_um: 0.323390342594048
-      z_step_size_um: 1.0
+      y_size_px: 256
+      x_size_px: 256
+      z_size_px: 1
+      xy_pixel_size_um: 0.323390342594048
+      z_step_um: 1.0
     optics:
       magnification: 20.0
       numerical_aperture: 0.75
@@ -59,11 +59,11 @@ example-multichannel.nd2:
 example-timelapse.nd2:
   FITC:
     resolution:
-      height_px: 64
-      width_px: 64
-      thickness_px: 1
-      pixel_size_um: 0.325
-      z_step_size_um: 1.0
+      y_size_px: 64
+      x_size_px: 64
+      z_size_px: 1
+      xy_pixel_size_um: 0.325
+      z_step_um: 1.0
     optics:
       magnification: 40.0
       numerical_aperture: 0.95
@@ -75,11 +75,11 @@ example-timelapse.nd2:
 example-zstack.nd2:
   FITC:
     resolution:
-      height_px: 128
-      width_px: 128
-      thickness_px: 11
-      pixel_size_um: 0.323390342594048
-      z_step_size_um: 6.0
+      y_size_px: 128
+      x_size_px: 128
+      z_size_px: 11
+      xy_pixel_size_um: 0.323390342594048
+      z_step_um: 6.0
     optics:
       magnification: 20.0
       numerical_aperture: 0.75
