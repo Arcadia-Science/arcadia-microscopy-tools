@@ -74,7 +74,7 @@ class NominalDimensions(DimensionValidatorMixin):
 
     x_size_px: int
     y_size_px: int
-    xy_pixel_size_um: float
+    xy_step_um: float
     z_size_px: int | None = dimension_field(DimensionFlags.Z_STACK)
     z_step_um: float | None = dimension_field(DimensionFlags.Z_STACK)
     t_size_px: int | None = dimension_field(DimensionFlags.TIMELAPSE)
