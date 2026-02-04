@@ -348,19 +348,14 @@ class _LeicaMetadataParser:
 
         if "T" in self.sizes and self.sizes["T"] > 1:
             dimensions |= DimensionFlags.TIMELAPSE
-
         if "Z" in self.sizes and self.sizes["Z"] > 1:
             dimensions |= DimensionFlags.Z_STACK
-
         if "S" in self.sizes and self.sizes["S"] > 1:
             dimensions |= DimensionFlags.RGB
-
         if "λ" in self.sizes and self.sizes["λ"] > 1:
             dimensions |= DimensionFlags.SPECTRAL
-
         if "Λ" in self.sizes and self.sizes["Λ"] > 1:
             dimensions |= DimensionFlags.SPECTRAL
-
         if "M" in self.sizes and self.sizes["M"] > 1:
             dimensions |= DimensionFlags.MONTAGE
 
@@ -388,55 +383,39 @@ class _LeicaMetadataParser:
             "Λ": dim_id = 9
             "M": dim_id = 10
         """
-        # Find and validate X and Y dimensions
-        lif_dimension_x = self._find_dimension(1)
-        lif_dimension_y = self._find_dimension(2)
-        self._validate_dimension(lif_dimension_x, "X", self.sizes["X"], "m")
-        self._validate_dimension(lif_dimension_y, "Y", self.sizes["Y"], "m")
 
-        # Calculate pixel size using step property and convert to microns
-        x_step_um = 1e6 * lif_dimension_x.step
-        y_step_um = 1e6 * lif_dimension_y.step
-        xy_step_um = (x_step_um + y_step_um) / 2
+        # X and Y dimensions
+        x_dim = self._find_dimension(1)
+        y_dim = self._find_dimension(2)
+        xy_step_um = 1e6 * (x_dim.step + y_dim.step) / 2
 
-        # Z dimension
-        z_size_px = None
-        z_step_um = None
+        # Optional Z dimension
+        z_size_px, z_step_um = None, None
         if self.dimensions.is_zstack:
-            lif_dimension_z = self._find_dimension(3)
-            self._validate_dimension(lif_dimension_z, "Z", self.sizes["Z"], "m")
-            z_size_px = lif_dimension_z.number_of_elements
-            z_step_um = 1e6 * lif_dimension_z.step
+            z_dim = self._find_dimension(3)
+            z_size_px = z_dim.number_of_elements
+            z_step_um = 1e6 * z_dim.step
 
-        # T dimension
-        t_size_px = None
-        t_step_ms = None
+        # Optional T dimension
+        t_size_px, t_step_ms = None, None
         if self.dimensions.is_timelapse:
-            lif_dimension_t = self._find_dimension(4)
-            self._validate_dimension(lif_dimension_t, "T", self.sizes["T"], "s")
-            t_size_px = lif_dimension_t.number_of_elements
-            t_step_ms = 1e3 * lif_dimension_t.step  # Convert s to ms
+            t_dim = self._find_dimension(4)
+            t_size_px = t_dim.number_of_elements
+            t_step_ms = 1e3 * t_dim.step
 
-        # Wavelength dimension (Λ or λ)
-        w_size_px = None
-        w_step_nm = None
+        # Optional wavelength dimension (try Λ then λ)
+        w_size_px, w_step_nm = None, None
         if self.dimensions.is_spectral:
-            # Try emission wavelength (λ, dim_id=5) first, then excitation (Λ, dim_id=9)
-            lif_dimension_w = None
-            if "Λ" in self.sizes and self.sizes["Λ"] > 1:
-                lif_dimension_w = self._find_dimension(9)
-                self._validate_dimension(lif_dimension_w, "Λ", self.sizes["Λ"], "m")
-            elif "λ" in self.sizes and self.sizes["λ"] > 1:
-                lif_dimension_w = self._find_dimension(5)
-                self._validate_dimension(lif_dimension_w, "λ", self.sizes["λ"], "m")
-
-            if lif_dimension_w is not None:
-                w_size_px = lif_dimension_w.number_of_elements
-                w_step_nm = 1e9 * lif_dimension_w.step  # Convert m to nm
+            for dim_id, size_key in [(9, "Λ"), (5, "λ")]:
+                if size_key in self.sizes and self.sizes[size_key] > 1:
+                    w_dim = self._find_dimension(dim_id)
+                    w_size_px = w_dim.number_of_elements
+                    w_step_nm = 1e9 * w_dim.step
+                    break
 
         return NominalDimensions(
-            x_size_px=lif_dimension_x.number_of_elements,
-            y_size_px=lif_dimension_y.number_of_elements,
+            x_size_px=x_dim.number_of_elements,
+            y_size_px=y_dim.number_of_elements,
             xy_step_um=xy_step_um,
             z_size_px=z_size_px,
             z_step_um=z_step_um,
@@ -464,34 +443,6 @@ class _LeicaMetadataParser:
         if dimension is None:
             raise ValueError(f"Missing dimension (dim_id={dim_id}) in LIF metadata")
         return dimension
-
-    def _validate_dimension(
-        self,
-        dimension: _LifDimension,
-        dim_name: str,
-        expected_size: int,
-        expected_unit: str,
-    ) -> None:
-        """Validate a dimension's unit and size.
-
-        Args:
-            dimension: The dimension to validate
-            dim_name: Human-readable name for error messages (e.g., "X", "Y", "Z")
-            expected_size: Expected number of elements
-
-        Raises:
-            ValueError: If validation fails
-        """
-        if dimension.unit != expected_unit:
-            raise ValueError(
-                f"Expected {dim_name} dimension unit '{expected_unit}' but got: {dimension.unit}"
-            )
-
-        if dimension.number_of_elements != expected_size:
-            raise ValueError(
-                f"{dim_name} dimension mismatch: lif_dimension has {dimension.number_of_elements} "
-                f"but sizes has {expected_size}"
-            )
 
     def _parse_measured_dimensions(self) -> MeasuredDimensions:
         """Parse measured dimension values from LIF metadata.
