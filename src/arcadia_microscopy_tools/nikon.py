@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import re
 from datetime import datetime
 from pathlib import Path
@@ -145,9 +146,12 @@ class _NikonMetadataParser:
         x_step_um, y_step_um, z_step_um = nd2_channel.volume.axesCalibration
         xy_pixel_size_um = (x_step_um + y_step_um) / 2
 
-        # Time dimension (fragile)
-        t_size_px = self.events[-1].get("T Index")
-        t_step_ms = self.events[0].get("Exposure Time [ms]")
+        # Time dimension - extract from events if available
+        t_size_px = None
+        t_step_ms = None
+        if self.events:
+            t_size_px = self.events[-1].get("T Index")
+            t_step_ms = self.events[0].get("Exposure Time [ms]")
 
         return NominalDimensions(
             x_size_px=x_size_px,
@@ -162,7 +166,11 @@ class _NikonMetadataParser:
         )
 
     def _parse_measured_dimensions(self) -> MeasuredDimensions:
-        """"""
+        """Parse measured dimension values from event metadata.
+
+        Extracts actual z-positions, frame intervals, and wavelengths from the
+        events metadata rather than nominal values.
+        """
         z_values_um = None
         t_values_ms = None
         w_values_nm = None
@@ -192,7 +200,11 @@ class _NikonMetadataParser:
         )
 
     def _extract_z_coordinates(self, events_dataframe: pd.DataFrame) -> Float64Array:
-        """"""
+        """Extract z-coordinates from events, centered around z=0.
+
+        Dynamically selects the appropriate z-column based on which has variation
+        (different hardware configurations use different column names).
+        """
         z_columns = ["Z Coord [µm]", "Ti2 ZDrive [µm]", "NIDAQ Piezo Z (name: Piezo Z) [µm]"]
 
         # Find which z column exists and has variation
@@ -205,6 +217,9 @@ class _NikonMetadataParser:
         if dynamic_z_column is None:
             raise ValueError("No varying Z coordinate column found in events")
 
+        if "Z-Series" not in events_dataframe.columns:
+            raise ValueError("Missing 'Z-Series' column in events metadata")
+
         z_values_um = events_dataframe[dynamic_z_column].to_numpy(dtype=float)
         z_center_index = events_dataframe["Z-Series"].abs().idxmin()
         z_center = events_dataframe.loc[z_center_index, dynamic_z_column]
@@ -213,14 +228,23 @@ class _NikonMetadataParser:
         return z_values_um
 
     def _extract_time_coordinates(self, events_dataframe: pd.DataFrame) -> Float64Array:
-        """"""
+        """Extract time coordinates from events, relative to the first frame.
+
+        Returns time values in milliseconds, zeroed to the start of acquisition.
+        """
+        if "Time [s]" not in events_dataframe.columns:
+            raise ValueError("Missing 'Time [s]' column in events metadata")
+
         t_values_s = events_dataframe["Time [s]"].to_numpy(dtype=float)
         t_values_ms = 1e3 * (t_values_s - t_values_s.min())
         return t_values_ms
 
     def _extract_wavelength_coordinates(self, events_dataframe: pd.DataFrame) -> Float64Array:
-        """"""
-        raise NotImplementedError("")
+        """Extract wavelength coordinates from events for spectral imaging.
+
+        Not yet implemented - spectral data extraction needs additional testing.
+        """
+        raise NotImplementedError("Wavelength extraction for spectral imaging is not yet implemented")
 
     def _parse_acquisition_settings(
         self,
@@ -274,10 +298,7 @@ class _NikonMetadataParser:
         sample_regex = rf"Sample {sample_index}:[\s\S]*?(?=Sample \d|$)"
         sample_match = re.search(sample_regex, self.text_info["capturing"])
 
-        if not sample_match:
-            return self.text_info["capturing"]
-        else:
-            return sample_match.group(0)
+        return sample_match.group(0) if sample_match else self.text_info["capturing"]
 
     def _extract_plane_text(self, channel_index: int) -> str:
         """Extract 'Plane' section from text_info for a specific channel.
@@ -292,10 +313,7 @@ class _NikonMetadataParser:
         plane_regex = rf"Plane #{plane_index}:[\s\S]*?(?=Plane #\d|$)"
         plane_match = re.search(plane_regex, self.text_info["description"])
 
-        if not plane_match:
-            return self.text_info["description"]
-        else:
-            return plane_match.group(0)
+        return plane_match.group(0) if plane_match else self.text_info["description"]
 
     def _parse_binning(self, sample_text: str) -> str | None:
         """Parse binning from sample text."""
