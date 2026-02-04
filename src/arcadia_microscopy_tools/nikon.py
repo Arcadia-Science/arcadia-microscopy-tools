@@ -12,8 +12,9 @@ from .metadata_structures import (
     AcquisitionSettings,
     ChannelMetadata,
     DimensionFlags,
+    MeasuredDimensions,
     MicroscopeConfig,
-    PhysicalDimensions,
+    NominalDimensions,
 )
 from .microscopy import ImageMetadata
 from .typing import Float64Array
@@ -44,19 +45,19 @@ class _NikonMetadataParser:
         self.nd2_path = nd2_path
         self.channels = channels
         self._nd2f: nd2.ND2File
-        self._text_info: TextInfo
 
     def parse(self) -> ImageMetadata:
         """Parse the ND2 file and extract all metadata."""
         with nd2.ND2File(self.nd2_path) as self._nd2f:
-            self._text_info = TextInfo(self._nd2f.text_info)
             self.sizes = dict(self._nd2f.sizes)
+            self.text_info = TextInfo(self._nd2f.text_info)
+            self.events = self._nd2f.events()
             self.dimensions = self._get_dimension_flags()
             self.timestamp = self._parse_timestamp()
 
             channel_metadata_list = self._parse_all_channels()
 
-            return ImageMetadata(self.sizes, channel_metadata_list)
+        return ImageMetadata(self.sizes, channel_metadata_list)
 
     def _parse_all_channels(self) -> list[ChannelMetadata]:
         """Parse metadata for all channels in the ND2 file."""
@@ -90,6 +91,7 @@ class _NikonMetadataParser:
             channel = Channel.from_optical_config_name(nd2_channel.channel.name)
 
         resolution = self._parse_physical_dimensions(nd2_channel)
+        measured = self._parse_measured_dimensions(nd2_channel)
         acquisition = self._parse_acquisition_settings(nd2_channel, channel_index)
         optics = self._parse_microscope_settings(nd2_channel)
 
@@ -98,11 +100,12 @@ class _NikonMetadataParser:
             timestamp=self.timestamp,
             dimensions=self.dimensions,
             resolution=resolution,
+            measured=measured,
             acquisition=acquisition,
             optics=optics,
         )
 
-    def _get_nd2_channel_metadata(self, channel_index: int):
+    def _get_nd2_channel_metadata(self, channel_index: int) -> nd2.structures.Channel:
         """Get the nd2 channel metadata object for a specific channel."""
         channels = self._nd2f.metadata.channels
         if channels is None:
@@ -115,41 +118,57 @@ class _NikonMetadataParser:
 
         if "T" in self.sizes and self.sizes["T"] > 1:
             dimensions |= DimensionFlags.TIMELAPSE
-
         if "Z" in self.sizes and self.sizes["Z"] > 1:
             dimensions |= DimensionFlags.Z_STACK
-
         if "S" in self.sizes and self.sizes["S"] > 1:
             dimensions |= DimensionFlags.RGB
-
-        # TODO: Add checks for SPECTRAL, MONTAGE
-        # - MONTAGE might be "XY"
+        if "P" in self.sizes and self.sizes["P"] > 1:
+            dimensions |= DimensionFlags.MONTAGE
 
         return dimensions
 
     def _parse_timestamp(self) -> datetime:
         """Parse timestamp from text_info."""
-        if "date" not in self._text_info:
+        if "date" not in self.text_info:
             raise ValueError("Missing 'date' field in text_info")
 
-        timestamp = self._text_info["date"]
+        timestamp = self.text_info["date"]
         return datetime.strptime(timestamp, "%m/%d/%Y %I:%M:%S %p")
 
     def _parse_physical_dimensions(
         self,
         nd2_channel: nd2.structures.Channel,
-    ) -> PhysicalDimensions:
+    ) -> NominalDimensions:
         """Parse physical dimensions from nd2 channel metadata."""
-        height_px, width_px, thickness_px = nd2_channel.volume.voxelCount
-        pixel_size_um_x, pixel_size_um_y, pixel_size_um_z = nd2_channel.volume.axesCalibration
-        pixel_size_um = (pixel_size_um_x + pixel_size_um_y) / 2
+        x_size_px, y_size_px, z_size_px = nd2_channel.volume.voxelCount
+        x_step_um, y_step_um, z_step_um = nd2_channel.volume.axesCalibration
+        xy_pixel_size_um = (x_step_um + y_step_um) / 2
 
-        return PhysicalDimensions(
-            height_px=height_px,
-            width_px=width_px,
-            pixel_size_um=pixel_size_um,
-            thickness_px=thickness_px if self.dimensions.is_zstack else None,
-            z_step_size_um=pixel_size_um_z if self.dimensions.is_zstack else None,
+        return NominalDimensions(
+            x_size_px=x_size_px,
+            y_size_px=y_size_px,
+            xy_pixel_size_um=xy_pixel_size_um,
+            z_size_px=z_size_px if self.dimensions.is_zstack else None,
+            z_step_um=z_step_um if self.dimensions.is_zstack else None,
+            t_size_px=-1,
+            t_step_ms=-1,
+            w_size_px=-1,
+            w_step_nm=-1,
+        )
+
+    def _parse_measured_dimensions(
+        self,
+        nd2_channel: nd2.structures.Channel,
+    ) -> MeasuredDimensions:
+        """"""
+
+        # z_values_um = self._parse_z_steps() if self.dimensions.is_zstack else None
+        # t_values_ms = self._parse_frame_intervals() if self.dimensions.is_timelapse else None
+
+        return MeasuredDimensions(
+            z_values_um=None,
+            t_values_ms=None,
+            w_values_nm=None,
         )
 
     def _parse_acquisition_settings(
@@ -159,19 +178,20 @@ class _NikonMetadataParser:
     ) -> AcquisitionSettings:
         """Parse acquisition settings from nd2 channel metadata and text_info."""
         sample_text = self._extract_sample_text(channel_index)
-        binning = self._parse_binning(sample_text)
         exposure_time_ms = self._parse_exposure_time(sample_text)
-
-        frame_intervals_ms = None
-        if self.dimensions.is_timelapse:
-            frame_intervals_ms = self._parse_frame_intervals()
+        zoom = nd2_channel.microscope.zoomMagnification
+        binning = self._parse_binning(sample_text)
 
         return AcquisitionSettings(
-            exposure_time_ms=exposure_time_ms or 0.0,
-            zoom=nd2_channel.microscope.zoomMagnification,
+            exposure_time_ms=exposure_time_ms,
+            zoom=zoom,
             binning=binning,
-            frame_intervals_ms=frame_intervals_ms,
-            wavelengths_nm=None,  # TODO: extract wavelengths for spectral data
+            pixel_dwell_time_us=None,
+            line_scan_speed_hz=None,
+            line_averaging=None,
+            line_accumulation=None,
+            frame_averaging=None,
+            frame_accumulation=None,
         )
 
     def _parse_microscope_settings(
@@ -196,15 +216,15 @@ class _NikonMetadataParser:
         For single-channel files, returns entire 'capturing' field.
         For multi-channel files, extracts specific 'Sample N:' section.
         """
-        if "capturing" not in self._text_info:
+        if "capturing" not in self.text_info:
             raise ValueError("Missing 'capturing' field in text_info")
 
         sample_index = channel_index + 1
         sample_regex = rf"Sample {sample_index}:[\s\S]*?(?=Sample \d|$)"
-        sample_match = re.search(sample_regex, self._text_info["capturing"])
+        sample_match = re.search(sample_regex, self.text_info["capturing"])
 
         if not sample_match:
-            return self._text_info["capturing"]
+            return self.text_info["capturing"]
         else:
             return sample_match.group(0)
 
@@ -214,15 +234,15 @@ class _NikonMetadataParser:
         For single-channel files, returns entire 'description' field.
         For multi-channel files, extracts specific 'Plane #N:' section.
         """
-        if "description" not in self._text_info:
+        if "description" not in self.text_info:
             raise ValueError("Missing 'description' field in text_info")
 
         plane_index = channel_index + 1
         plane_regex = rf"Plane #{plane_index}:[\s\S]*?(?=Plane #\d|$)"
-        plane_match = re.search(plane_regex, self._text_info["description"])
+        plane_match = re.search(plane_regex, self.text_info["description"])
 
         if not plane_match:
-            return self._text_info["description"]
+            return self.text_info["description"]
         else:
             return plane_match.group(0)
 
@@ -243,14 +263,6 @@ class _NikonMetadataParser:
                     time, unit = match.groups()
                     time_s = self._convert_time_to_s(time, unit)
                     return time_s * 1000  # Convert to ms for AcquisitionSettings
-        return None
-
-    def _parse_frame_intervals(self) -> Float64Array | None:
-        """Parse frame intervals from events metadata."""
-        if self._nd2f.events():
-            acquisition_start_times_s = [event["Time [s]"] for event in self._nd2f.events()]
-            frame_intervals_s = np.diff(acquisition_start_times_s)
-            return frame_intervals_s * 1000.0  # Convert to ms for AcquisitionSettings
         return None
 
     def _parse_power(self, plane_text: str) -> float | None:
