@@ -317,6 +317,8 @@ class _LeicaMetadataParser:
         if (detector_name, None) in self._CHANNEL_DETECTION_MAP:
             return self._CHANNEL_DETECTION_MAP[(detector_name, None)]
 
+        #
+
         raise ValueError(
             f"Could not determine channel from DetectorName: {detector_name}, "
             f"BeamRoute: {beam_route}. Please provide channels list explicitly."
@@ -463,16 +465,21 @@ class _LeicaMetadataParser:
             "ATLConfocalSettingDefinition", {}
         )
 
-        zoom = float(microscope_data.get("Zoom", -1.0))
-        pixel_dwell_time_us = 1e-6 * float(microscope_data.get("PixelDwellTime"))
-        line_scan_speed_hz = float(microscope_data.get("Speed"))
-        line_averaging = int(microscope_data.get("LineAverage"))
-        line_accumulation = int(microscope_data.get("Line_Accumulation"))
-        frame_averaging = int(microscope_data.get("FrameAverage"))
-        frame_accumulation = int(microscope_data.get("FrameAccumulation"))
+        zoom = float(microscope_data.get("Zoom", np.nan))
+        pixel_dwell_time_s = float(microscope_data.get("PixelDwellTime", np.nan))
+        line_scan_speed_hz = float(microscope_data.get("ScanSpeed", np.nan))
+        line_averaging = int(microscope_data.get("LineAverage", 1))
+        line_accumulation = int(microscope_data.get("Line_Accumulation", 1))
+        frame_averaging = int(microscope_data.get("FrameAverage", 1))
+        frame_accumulation = int(microscope_data.get("FrameAccumulation", 1))
+
+        # Convert pixel dwell time from seconds to microseconds
+        pixel_dwell_time_us = 1e6 * pixel_dwell_time_s
 
         # Calculate exposure time from per-pixel dwell time and spatial dimensions
-        exposure_time_ms = 1e3 * float(pixel_dwell_time_us) * self.sizes["X"] * self.sizes["Y"]
+        # Total time in seconds: pixel_dwell_time_s * X * Y, then convert to milliseconds
+        exposure_time_ms = pixel_dwell_time_s * self.sizes["X"] * self.sizes["Y"] * 1e3
+
 
         return AcquisitionSettings(
             exposure_time_ms=exposure_time_ms,
