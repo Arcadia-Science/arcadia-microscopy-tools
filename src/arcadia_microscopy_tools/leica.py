@@ -480,7 +480,6 @@ class _LeicaMetadataParser:
         # Total time in seconds: pixel_dwell_time_s * X * Y, then convert to milliseconds
         exposure_time_ms = pixel_dwell_time_s * self.sizes["X"] * self.sizes["Y"] * 1e3
 
-
         return AcquisitionSettings(
             exposure_time_ms=exposure_time_ms,
             zoom=zoom,
@@ -499,8 +498,8 @@ class _LeicaMetadataParser:
             "ATLConfocalSettingDefinition", {}
         )
 
-        magnification = int(microscope_data.get("Magnification", -1))
-        numerical_aperture = float(microscope_data.get("NumericalAperture", -1.0))
+        magnification = int(microscope_data.get("Magnification", 0))
+        numerical_aperture = float(microscope_data.get("NumericalAperture", np.nan))
         objective = microscope_data.get("ObjectiveName")
 
         return MicroscopeConfig(
