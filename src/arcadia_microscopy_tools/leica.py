@@ -428,17 +428,7 @@ class _LeicaMetadataParser:
         )
 
     def _find_dimension(self, dim_id: int) -> _LifDimension:
-        """Find a _LifDimension by its ID.
-
-        Args:
-            dim_id: The dimension ID to find
-
-        Returns:
-            The _LifDimension with the given ID
-
-        Raises:
-            ValueError: If dimension is not found
-        """
+        """Find a _LifDimension by its ID."""
         dimension = next(
             (d for d in self.image_description.lif_dimensions if d.dim_id == dim_id), None
         )
@@ -449,13 +439,30 @@ class _LeicaMetadataParser:
     def _parse_measured_dimensions(self) -> MeasuredDimensions:
         """Parse measured dimension values from LIF metadata.
 
-        Currently returns None for all dimensions as LIF files typically don't
-        store actual measured positions separately from nominal values.
+        Coords are created in liffile.py from properties in LifDimension, hence they are not
+        truly measured. Idk the real source of measured coordinates (or if there is one) for
+        Z and T dimensions.
+
+        See also:
+            - https://github.com/cgohlke/liffile/blob/main/liffile/liffile.py#L1298
         """
+
+        z_values_um = None
+        if self.dimensions.is_zstack:
+            z_values_um = self.image.coords["Z"]
+
+        t_values_ms = None
+        if self.dimensions.is_timelapse:
+            t_values_ms = self.image.coords["T"]
+
+        w_values_nm = None
+        if self.dimensions.is_spectral:
+            w_values_nm = _WavelengthExtractor(self.image, self.sizes)._try_lambda_scan_path()
+
         return MeasuredDimensions(
-            z_values_um=None,
-            t_values_ms=None,
-            w_values_nm=None,
+            z_values_um=z_values_um,
+            t_values_ms=t_values_ms,
+            w_values_nm=w_values_nm,
         )
 
     def _parse_acquisition_settings(self, channel: Channel) -> AcquisitionSettings:
