@@ -36,7 +36,7 @@ def _as_float(s: str, *, ctx: str = "") -> float:
 
 
 def _get_required_attr(element: ET.Element, name: str) -> str:
-    """Get a required attribute from an XML element"""
+    """Get a required attribute from an XML element."""
     value = element.get(name)
     if value is None:
         raise ValueError(f"Missing attribute {name!r} on <{element.tag}>")
@@ -45,7 +45,7 @@ def _get_required_attr(element: ET.Element, name: str) -> str:
 
 @dataclass(frozen=True)
 class _LifChannel:
-    """Recreated from liffile where it is not exposed and ignores properties"""
+    """Recreated from liffile where it is not exposed and ignores properties."""
 
     data_type: int
     channel_tag: int
@@ -95,7 +95,7 @@ class _LifChannel:
 
 @dataclass(frozen=True)
 class _LifDimension:
-    """Recreated from liffile where it is not exposed"""
+    """Recreated from liffile where it is not exposed."""
 
     dim_id: int
     number_of_elements: int
@@ -240,7 +240,7 @@ class _LeicaMetadataParser:
         return ImageDescription(lif_channels, lif_dimensions)
 
     def _parse_channels_from_xml(self, channels_element: ET.Element) -> list[_LifChannel]:
-        """Parse channel descriptions from the <Channels> XML element"""
+        """Parse channel descriptions from the <Channels> XML element."""
         return [
             _LifChannel.from_xml(element)
             for element in channels_element.findall("ChannelDescription")
@@ -295,17 +295,7 @@ class _LeicaMetadataParser:
         )
 
     def _infer_channel(self, lif_channel: _LifChannel) -> Channel:
-        """Infer channel type from detector metadata.
-
-        Args:
-            lif_channel: The LIF channel to infer from
-
-        Returns:
-            The inferred Channel
-
-        Raises:
-            ValueError: If channel cannot be determined from metadata
-        """
+        """Infer channel type from detector metadata."""
         detector_name = lif_channel.properties.get("DetectorName")
         beam_route = lif_channel.properties.get("BeamRoute")
 
