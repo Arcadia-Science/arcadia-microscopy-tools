@@ -253,7 +253,7 @@ class SegmentationMask:
                 )
                 # Add channel suffix to property names
                 for prop_name, prop_values in channel_props.items():
-                    properties[f"{prop_name}_{channel.name}"] = prop_values
+                    properties[f"{prop_name}_{channel.name.lower()}"] = prop_values
 
         return properties
 
