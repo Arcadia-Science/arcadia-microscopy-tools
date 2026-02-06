@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-02-02
+
+### Changed
+- Cell property conversions now include explicit unit suffixes (e.g., `area_um2`, `perimeter_um`, `major_axis_length_um`)
+- Renamed centroid properties for clarity:
+  - `centroid-0` → `centroid_y` (pixel coordinates)
+  - `centroid-1` → `centroid_x` (pixel coordinates)
+- Centroid properties are no longer converted to physical units and remain as pixel coordinates
+- Renamed channel intensity properties so that all cell properties are snake_case:
+  - `intensity_min_FITC` → `intensity_min_fitc`
+
+### Fixed
+- Cell outline coordinate format bug: outlines are now consistently returned in (y, x) format for both cellpose and skimage extractors
+- Cell property access now raises an error when attempting to access properties with no cells present
+
 ## [0.2.4] - 2026-01-30
 
 ### Added
