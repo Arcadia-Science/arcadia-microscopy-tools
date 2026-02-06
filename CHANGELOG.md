@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `centroid-0` → `centroid_y` (pixel coordinates)
   - `centroid-1` → `centroid_x` (pixel coordinates)
 - Centroid properties are no longer converted to physical units and remain as pixel coordinates
+- Renamed channel intensity properties so that all cell properties are snake_case:
+  - `intensity_min_FITC` → `intensity_min_fitc`
 
 ### Fixed
 - Cell outline coordinate format bug: outlines are now consistently returned in (y, x) format for both cellpose and skimage extractors
