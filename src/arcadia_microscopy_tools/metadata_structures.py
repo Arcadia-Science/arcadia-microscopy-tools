@@ -87,11 +87,12 @@ class NominalDimensions(DimensionValidatorMixin):
 class MeasuredDimensions(DimensionValidatorMixin):
     """Actual measured coordinate values for each dimension.
 
-    These represent the actual values recorded during acquisition,
-    which may differ from nominal spacing due to hardware limitations,
-    timing jitter, or intentional non-uniform sampling.
+    These represent the actual values recorded during acquisition, which may differ from nominal
+    spacing due to hardware, timing jitter, or intentional non-uniform sampling.
     """
 
+    x_values_um: Float64Array | None = dimension_field(DimensionFlags.MONTAGE)
+    y_values_um: Float64Array | None = dimension_field(DimensionFlags.MONTAGE)
     z_values_um: Float64Array | None = dimension_field(DimensionFlags.Z_STACK)
     t_values_ms: Float64Array | None = dimension_field(DimensionFlags.TIMELAPSE)
     w_values_nm: Float64Array | None = dimension_field(DimensionFlags.SPECTRAL)
