@@ -205,7 +205,10 @@ class _NikonMetadataParser:
     def _extract_xy_coordinates(
         self, events_dataframe: pd.DataFrame
     ) -> tuple[Float64Array, Float64Array]:
-        """"""
+        """Extract stage coordinates from events for tiled imaging.
+
+        Not yet implemented - stage position data extraction needs additional testing.
+        """
         raise NotImplementedError(
             "(X, Y) position extraction for tiled imaging is not yet implemented"
         )
