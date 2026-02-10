@@ -167,6 +167,8 @@ class _NikonMetadataParser:
         Extracts actual z-positions, frame intervals, and wavelengths from the
         events metadata rather than nominal values.
         """
+        x_values_um = None
+        y_values_um = None
         z_values_um = None
         t_values_ms = None
         w_values_nm = None
@@ -180,6 +182,9 @@ class _NikonMetadataParser:
                 w_values_nm=w_values_nm,
             )
 
+        if self.dimensions.is_montage:
+            x_values_um, y_values_um = self._extract_xy_coordinates(events_dataframe)
+
         if self.dimensions.is_zstack:
             z_values_um = self._extract_z_coordinates(events_dataframe)
 
@@ -190,9 +195,19 @@ class _NikonMetadataParser:
             w_values_nm = self._extract_wavelength_coordinates(events_dataframe)
 
         return MeasuredDimensions(
+            x_values_um=x_values_um,
+            y_values_um=y_values_um,
             z_values_um=z_values_um,
             t_values_ms=t_values_ms,
             w_values_nm=w_values_nm,
+        )
+
+    def _extract_xy_coordinates(
+        self, events_dataframe: pd.DataFrame
+    ) -> tuple[Float64Array, Float64Array]:
+        """"""
+        raise NotImplementedError(
+            "(X, Y) position extraction for tiled imaging is not yet implemented"
         )
 
     def _extract_z_coordinates(self, events_dataframe: pd.DataFrame) -> Float64Array:
@@ -330,29 +345,29 @@ class _NikonMetadataParser:
         return None
 
     def _parse_power(self, plane_text: str) -> float | None:
-        """Parse laser power percentage from plane text.
+        """Parse laser power percentage from plane text."""
 
-        Parsing the power is tricky:
-            1. Units are percentages and total power is unknown
-            2. Not trivial to determine the light source for non-fluorescence
-               channels (e.g. BRIGHTFIELD, DIC)
+        # Parsing the power is tricky:
+        #     1. Units are percentages and total power is unknown
+        #     2. Not trivial to determine the light source for non-fluorescence
+        #        channels (e.g. BRIGHTFIELD, DIC)
 
-            Example snippet of plane_text from tests/data/example-multichannel.nd2:
-                Plane #1:
-                    Name: Mono
-                    Component Count: 1
-                    Modality: Widefield Fluorescence
-                    Camera Settings:   Exposure: 20 ms
-                    ...
-                    LUN-F, MultiLaser(LUN-F):
-                        Line:3; ExW:561; Power: 82.5; On
+        #     Example snippet of plane_text from tests/data/example-multichannel.nd2:
+        #         Plane #1:
+        #             Name: Mono
+        #             Component Count: 1
+        #             Modality: Widefield Fluorescence
+        #             Camera Settings:   Exposure: 20 ms
+        #             ...
+        #             LUN-F, MultiLaser(LUN-F):
+        #                 Line:3; ExW:561; Power: 82.5; On
 
-                    Lida, Shutter(Lida): Active
-                    Lida, MultiLaser(Lida):
-                        Line:1; ExW:450; Power:  5.0; On
-                        Line:2; ExW:550; Power:  5.0; On
-                        Line:3; ExW:640; Power:  5.0; On
-        """
+        #             Lida, Shutter(Lida): Active
+        #             Lida, MultiLaser(Lida):
+        #                 Line:1; ExW:450; Power:  5.0; On
+        #                 Line:2; ExW:550; Power:  5.0; On
+        #                 Line:3; ExW:640; Power:  5.0; On
+
         pattern = r"Power:\s*(-?\d+(\.\d*)?|-?\.\d+)"
         for line in plane_text.splitlines():
             if "Power" in line:
