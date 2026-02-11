@@ -192,3 +192,6 @@ CARS = Channel.register(
 SRS = Channel.register(
     Channel(name="SRS", color=HexCode("srs", "#e63535")),
 )
+SHG = Channel.register(
+    Channel(name="SHG", color=HexCode("shg", "#f29b4f"))
+)
