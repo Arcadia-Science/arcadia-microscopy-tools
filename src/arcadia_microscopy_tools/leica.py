@@ -23,14 +23,6 @@ from .microscopy import ImageMetadata
 from .typing import Float64Array
 
 
-def _get_required_attr(element: ET.Element, name: str) -> str:
-    """Get a required attribute from an XML element."""
-    value = element.get(name)
-    if value is None:
-        raise ValueError(f"Missing attribute {name!r} on <{element.tag}>")
-    return value
-
-
 def list_image_names(lif_path: Path) -> list[str]:
     """List all image names contained in a LIF file.
 
@@ -62,6 +54,238 @@ def create_image_metadata_from_lif(
     """
     parser = _LeicaMetadataParser(lif_path, image_name, channels)
     return parser.parse()
+
+
+def _get_required_attr(element: ET.Element, name: str) -> str:
+    """Get a required attribute from an XML element."""
+    value = element.get(name)
+    if value is None:
+        raise ValueError(f"Missing attribute {name!r} on <{element.tag}>")
+    return value
+
+
+class _LifChannel(BaseModel):
+    """Recreated from liffile where it is not exposed and ignores properties."""
+
+    data_type: int
+    channel_tag: int
+    resolution: int
+    lut_name: str
+    bytes_inc: int
+    bit_inc: int
+    min_value: float
+    max_value: float
+    unit: str
+    name_of_measured_quantity: str
+    properties: dict[str, str]
+
+    model_config = {"frozen": True}
+
+    @classmethod
+    def from_xml(cls, element: ET.Element) -> _LifChannel:
+        """Create from XML ChannelDescription element."""
+        # Extract channel properties
+        props: dict[str, str] = {}
+        for prop in element.findall("ChannelProperty"):
+            key_element = prop.find("Key")
+            value_element = prop.find("Value")
+            if key_element is None or value_element is None or key_element.text is None:
+                continue
+            props[key_element.text] = value_element.text or ""
+
+        return cls(
+            data_type=int(_get_required_attr(element, "DataType")),
+            channel_tag=int(_get_required_attr(element, "ChannelTag")),
+            resolution=int(_get_required_attr(element, "Resolution")),
+            lut_name=_get_required_attr(element, "LUTName"),
+            bytes_inc=int(_get_required_attr(element, "BytesInc")),
+            bit_inc=int(_get_required_attr(element, "BitInc")),
+            min_value=float(_get_required_attr(element, "Min")),
+            max_value=float(_get_required_attr(element, "Max")),
+            unit=element.get("Unit", ""),
+            name_of_measured_quantity=element.get("NameOfMeasuredQuantity", ""),
+            properties=props,
+        )
+
+
+class _LifDimension(BaseModel):
+    """Recreated from liffile where it is not exposed."""
+
+    dim_id: int
+    number_of_elements: int
+    origin: float
+    length: float
+    unit: str
+    bit_inc: int
+    bytes_inc: int
+
+    model_config = {"frozen": True}
+
+    @computed_field
+    @property
+    def step(self) -> float:
+        """Calculate step size for this dimension."""
+        return self.length / self.number_of_elements
+
+    @classmethod
+    def from_xml(cls, element: ET.Element) -> _LifDimension:
+        """Create from XML DimensionDescription element."""
+        return cls(
+            dim_id=int(_get_required_attr(element, "DimID")),
+            number_of_elements=int(_get_required_attr(element, "NumberOfElements")),
+            origin=float(_get_required_attr(element, "Origin")),
+            length=float(_get_required_attr(element, "Length")),
+            unit=_get_required_attr(element, "Unit"),
+            bit_inc=int(_get_required_attr(element, "BitInc")),
+            bytes_inc=int(_get_required_attr(element, "BytesInc")),
+        )
+
+
+class ImageDescription(BaseModel):
+    """Container for LIF image description metadata including channels and dimensions."""
+
+    lif_channels: list[_LifChannel]
+    lif_dimensions: list[_LifDimension]
+
+    model_config = {"frozen": True}
+
+
+class PowerState(str, Enum):
+    """Laser power state enumeration."""
+
+    ON = "On"
+    OFF = "Off"
+
+
+class LightSourceType(int, Enum):
+    """Light source type enumeration for different laser types."""
+
+    DIODE = 1
+    WLL = 4
+    CRS = 6
+
+
+class BeamPositionInfo(BaseModel):
+    """Beam position information from hardware settings."""
+
+    BeamPositionLevel: int
+    BeamPosition: int
+
+    model_config = {"frozen": True}
+
+
+class BeamRoute(BaseModel):
+    """Beam routing configuration for laser optics."""
+
+    BeamPosition: BeamPositionInfo | list[BeamPositionInfo]
+    Version: int
+
+    model_config = {"frozen": True}
+
+
+class LaserLine(BaseModel):
+    """Individual laser line activation state."""
+
+    IsLineActive: int
+
+    model_config = {"frozen": True}
+
+
+class LaserState(BaseModel):
+    """Represents the state of a single laser in the system."""
+
+    # Required fields
+    BeamRoute: BeamRoute
+    Version: int
+    LightSourceType: LightSourceType
+    LaserName: str
+    StedAlignFlag: int
+    CanDoLinearOutputPower: int
+    CanDoPulsing: int
+    CanDoOutputPowerWatt: int
+    HighPowerModeActive: int
+    LightSourceName: str
+    OutputPowerWatt: float
+    Wavelength: float
+    WavelengthDouble: float
+    PowerState: PowerState
+    CanDoChangeWavelength: int
+
+    # Optional fields (only present in some lasers)
+    OutputPowerPercentage: float | None = None
+    LaserLines: list[LaserLine] | None = None
+    ShutterState: int | None = None
+    ConstantPowerMode: int | None = None
+    TargetOutputPower: float | None = None
+    TuningRangeMin: float | None = None
+    TuningRangeMax: float | None = None
+    PumpOutputPowerPercent: float | None = None
+    PumpOutputPower: float | None = None
+    PumpWavelength: float | None = None
+
+    model_config = {"frozen": True}
+
+
+class LaserSystemState:
+    """Collection of laser states for the entire laser system."""
+
+    def __init__(self, lasers: list[LaserState]) -> None:
+        self.lasers = lasers
+
+    @property
+    def active_lasers(self) -> list[LightSourceType]:
+        """List of active laser types based on power state."""
+        return [laser.LightSourceType for laser in self.lasers if laser.PowerState == PowerState.ON]
+
+    def get_laser_by_type(self, laser_type: LightSourceType) -> LaserState:
+        """Get laser state by light source type."""
+        return next(laser for laser in self.lasers if laser.LightSourceType == laser_type)
+
+    def get_laser_by_name(
+        self, laser_name: Literal["UV Light", "SuperContVisible Light", "CARS Light (Attenuator)"]
+    ) -> LaserState:
+        """Get laser state by light source name."""
+        return next(laser for laser in self.lasers if laser.LightSourceName == laser_name)
+
+
+class LaserValue(BaseModel):
+    """Represents laser parameters at a specific step."""
+
+    Step: int
+    Wavelength: float
+    Power: float
+    FixedLinePower: float
+    Temperature: float
+    Humidity: float
+
+    model_config = {"frozen": True}
+
+
+class LaserValueCollection:
+    """Wrapper for operating on multiple LaserValue objects."""
+
+    def __init__(self, laser_values: list[LaserValue]):
+        self.values = laser_values
+
+    @property
+    def wavelengths_nm(self) -> Float64Array:
+        """Array of wavelengths in nanometers."""
+        return np.array([lv.Wavelength for lv in self.values])
+
+    @property
+    def powers_mw(self) -> Float64Array:
+        """Array of laser powers in milliwatts."""
+        return np.array([lv.Power for lv in self.values])
+
+    @property
+    def temperatures_c(self) -> Float64Array:
+        """Array of temperatures in Celsius."""
+        return np.array([lv.Temperature for lv in self.values])
+
+    @property
+    def humidities_pct(self) -> Float64Array:
+        """Array of humidity percentages."""
+        return np.array([lv.Humidity for lv in self.values])
 
 
 class _LeicaMetadataParser:
@@ -505,227 +729,3 @@ class _LeicaMetadataParser:
             return wavelength * 1e9 if wavelength < 1 else wavelength
         except (ValueError, TypeError) as ex:
             raise ValueError(f"Cannot determine wavelength from {value}") from ex
-
-
-class _LifChannel(BaseModel):
-    """Recreated from liffile where it is not exposed and ignores properties."""
-
-    data_type: int
-    channel_tag: int
-    resolution: int
-    lut_name: str
-    bytes_inc: int
-    bit_inc: int
-    min_value: float
-    max_value: float
-    unit: str
-    name_of_measured_quantity: str
-    properties: dict[str, str]
-
-    model_config = {"frozen": True}
-
-    @classmethod
-    def from_xml(cls, element: ET.Element) -> _LifChannel:
-        """Create from XML ChannelDescription element."""
-        # Extract channel properties
-        props: dict[str, str] = {}
-        for prop in element.findall("ChannelProperty"):
-            key_element = prop.find("Key")
-            value_element = prop.find("Value")
-            if key_element is None or value_element is None or key_element.text is None:
-                continue
-            props[key_element.text] = value_element.text or ""
-
-        return cls(
-            data_type=int(_get_required_attr(element, "DataType")),
-            channel_tag=int(_get_required_attr(element, "ChannelTag")),
-            resolution=int(_get_required_attr(element, "Resolution")),
-            lut_name=_get_required_attr(element, "LUTName"),
-            bytes_inc=int(_get_required_attr(element, "BytesInc")),
-            bit_inc=int(_get_required_attr(element, "BitInc")),
-            min_value=float(_get_required_attr(element, "Min")),
-            max_value=float(_get_required_attr(element, "Max")),
-            unit=element.get("Unit", ""),
-            name_of_measured_quantity=element.get("NameOfMeasuredQuantity", ""),
-            properties=props,
-        )
-
-
-class _LifDimension(BaseModel):
-    """Recreated from liffile where it is not exposed."""
-
-    dim_id: int
-    number_of_elements: int
-    origin: float
-    length: float
-    unit: str
-    bit_inc: int
-    bytes_inc: int
-
-    model_config = {"frozen": True}
-
-    @computed_field
-    @property
-    def step(self) -> float:
-        """Calculate step size for this dimension."""
-        return self.length / self.number_of_elements
-
-    @classmethod
-    def from_xml(cls, element: ET.Element) -> _LifDimension:
-        """Create from XML DimensionDescription element."""
-        return cls(
-            dim_id=int(_get_required_attr(element, "DimID")),
-            number_of_elements=int(_get_required_attr(element, "NumberOfElements")),
-            origin=float(_get_required_attr(element, "Origin")),
-            length=float(_get_required_attr(element, "Length")),
-            unit=_get_required_attr(element, "Unit"),
-            bit_inc=int(_get_required_attr(element, "BitInc")),
-            bytes_inc=int(_get_required_attr(element, "BytesInc")),
-        )
-
-
-class ImageDescription(BaseModel):
-    """Container for LIF image description metadata including channels and dimensions."""
-
-    lif_channels: list[_LifChannel]
-    lif_dimensions: list[_LifDimension]
-
-    model_config = {"frozen": True}
-
-
-class PowerState(str, Enum):
-    """Laser power state enumeration."""
-
-    ON = "On"
-    OFF = "Off"
-
-
-class LightSourceType(int, Enum):
-    """Light source type enumeration for different laser types."""
-
-    DIODE = 1
-    WLL = 4
-    CRS = 6
-
-
-class BeamPositionInfo(BaseModel):
-    """Beam position information from hardware settings."""
-
-    BeamPositionLevel: int
-    BeamPosition: int
-
-    model_config = {"frozen": True}
-
-
-class BeamRoute(BaseModel):
-    """Beam routing configuration for laser optics."""
-
-    BeamPosition: BeamPositionInfo | list[BeamPositionInfo]
-    Version: int
-
-    model_config = {"frozen": True}
-
-
-class LaserLine(BaseModel):
-    """Individual laser line activation state."""
-
-    IsLineActive: int
-
-    model_config = {"frozen": True}
-
-
-class LaserState(BaseModel):
-    """Represents the state of a single laser in the system."""
-
-    # Required fields
-    BeamRoute: BeamRoute
-    Version: int
-    LightSourceType: LightSourceType
-    LaserName: str
-    StedAlignFlag: int
-    CanDoLinearOutputPower: int
-    CanDoPulsing: int
-    CanDoOutputPowerWatt: int
-    HighPowerModeActive: int
-    LightSourceName: str
-    OutputPowerWatt: float
-    Wavelength: float
-    WavelengthDouble: float
-    PowerState: PowerState
-    CanDoChangeWavelength: int
-
-    # Optional fields (only present in some lasers)
-    OutputPowerPercentage: float | None = None
-    LaserLines: list[LaserLine] | None = None
-    ShutterState: int | None = None
-    ConstantPowerMode: int | None = None
-    TargetOutputPower: float | None = None
-    TuningRangeMin: float | None = None
-    TuningRangeMax: float | None = None
-    PumpOutputPowerPercent: float | None = None
-    PumpOutputPower: float | None = None
-    PumpWavelength: float | None = None
-
-    model_config = {"frozen": True}
-
-
-class LaserSystemState:
-    """Collection of laser states for the entire laser system."""
-
-    def __init__(self, lasers: list[LaserState]) -> None:
-        self.lasers = lasers
-
-    @property
-    def active_lasers(self) -> list[LightSourceType]:
-        """List of active laser types based on power state."""
-        return [laser.LightSourceType for laser in self.lasers if laser.PowerState == PowerState.ON]
-
-    def get_laser_by_type(self, laser_type: LightSourceType) -> LaserState:
-        """Get laser state by light source type."""
-        return next(laser for laser in self.lasers if laser.LightSourceType == laser_type)
-
-    def get_laser_by_name(
-        self, laser_name: Literal["UV Light", "SuperContVisible Light", "CARS Light (Attenuator)"]
-    ) -> LaserState:
-        """Get laser state by light source name."""
-        return next(laser for laser in self.lasers if laser.LightSourceName == laser_name)
-
-
-class LaserValue(BaseModel):
-    """Represents laser parameters at a specific step."""
-
-    Step: int
-    Wavelength: float
-    Power: float
-    FixedLinePower: float
-    Temperature: float
-    Humidity: float
-
-    model_config = {"frozen": True}
-
-
-class LaserValueCollection:
-    """Wrapper for operating on multiple LaserValue objects."""
-
-    def __init__(self, laser_values: list[LaserValue]):
-        self.values = laser_values
-
-    @property
-    def wavelengths_nm(self) -> Float64Array:
-        """Array of wavelengths in nanometers."""
-        return np.array([lv.Wavelength for lv in self.values])
-
-    @property
-    def powers_mw(self) -> Float64Array:
-        """Array of laser powers in milliwatts."""
-        return np.array([lv.Power for lv in self.values])
-
-    @property
-    def temperatures_c(self) -> Float64Array:
-        """Array of temperatures in Celsius."""
-        return np.array([lv.Temperature for lv in self.values])
-
-    @property
-    def humidities_pct(self) -> Float64Array:
-        """Array of humidity percentages."""
-        return np.array([lv.Humidity for lv in self.values])
