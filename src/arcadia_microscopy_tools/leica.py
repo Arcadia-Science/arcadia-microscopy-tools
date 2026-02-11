@@ -707,12 +707,11 @@ class LaserState(BaseModel):
     model_config = {"frozen": True}
 
 
-class LaserSystemState(BaseModel):
+class LaserSystemState:
     """Collection of laser states for the entire laser system."""
 
-    lasers: list[LaserState] = []
-
-    model_config = {"frozen": True}
+    def __init__(self, lasers: list[LaserState]) -> None:
+        self.lasers = lasers
 
     @property
     def active_lasers(self) -> list[LightSourceType]:
@@ -755,16 +754,20 @@ class LaserValueCollection:
 
     @property
     def wavelengths_nm(self) -> Float64Array:
+        """Array of wavelengths in nanometers."""
         return np.array([lv.Wavelength for lv in self.values])
 
     @property
     def powers_mw(self) -> Float64Array:
+        """Array of laser powers in milliwatts."""
         return np.array([lv.Power for lv in self.values])
 
     @property
     def temperatures_c(self) -> Float64Array:
+        """Array of temperatures in Celsius."""
         return np.array([lv.Temperature for lv in self.values])
 
     @property
     def humidities_pct(self) -> Float64Array:
+        """Array of humidity percentages."""
         return np.array([lv.Humidity for lv in self.values])
