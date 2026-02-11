@@ -16,6 +16,7 @@ dependencies = [
     "nd2>=0.10.3",
     "numpy>=2.4.1",
     "pandas>=2.3.3",
+    "pydantic>=2.11.7",
     "scikit-image>=0.25.2",
 ]
 

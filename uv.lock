@@ -163,6 +163,7 @@ dependencies = [
     { name = "nd2" },
     { name = "numpy" },
     { name = "pandas" },
+    { name = "pydantic" },
     { name = "scikit-image" },
 ]
 
@@ -199,6 +200,7 @@ requires-dist = [
     { name = "nd2", specifier = ">=0.10.3" },
     { name = "numpy", specifier = ">=2.4.1" },
     { name = "pandas", specifier = ">=2.3.3" },
+    { name = "pydantic", specifier = ">=2.11.7" },
     { name = "scikit-image", specifier = ">=0.25.2" },
     { name = "torch", marker = "extra == 'segmentation'", specifier = ">=2.7.1" },
 ]
