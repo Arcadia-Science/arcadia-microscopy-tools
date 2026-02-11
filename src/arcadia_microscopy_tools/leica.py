@@ -74,6 +74,24 @@ def calculate_raman_shift(
     return (1 / pump_wavelength_nm - 1 / stokes_wavelength_nm) * 1e7
 
 
+def calculate_antistokes_wavelength(
+    pump_wavelength_nm: float | Float64Array,
+    stokes_wavelength_nm: float | Float64Array = 1031.7,
+) -> float | Float64Array:
+    """Calculate anti-Stokes wavelength from pump and Stokes wavelengths.
+
+    Args:
+        pump_wavelength_nm: Wavelength of the pump beam in nanometers.
+            Can be a scalar or array of wavelengths.
+        stokes_wavelength_nm: Wavelength of the Stokes beam in nanometers.
+            Can be a scalar or array. Defaults to 1031.7 nm (CRS laser).
+
+    Returns:
+        Anti-Stokes wavelength in nanometers. Returns array if either input is an array.
+    """
+    return 1 / (2 / pump_wavelength_nm - 1 / stokes_wavelength_nm)
+
+
 def _get_required_attr(element: ET.Element, name: str) -> str:
     """Get a required attribute from an XML element."""
     value = element.get(name)
@@ -451,10 +469,7 @@ class _LeicaMetadataParser:
         )
 
     def _infer_channel(self, lif_channel: _LifChannel) -> Channel:
-        """Infer channel ...
-
-        Code reflects how silly and cumbersome this is.
-        """
+        """Infer channel ..."""
 
         active_lasers = self.laser_system_state.active_lasers
         if not active_lasers:
@@ -506,7 +521,7 @@ class _LeicaMetadataParser:
         beam_route = lif_channel.properties.get("BeamRoute")
 
         if detector_name in self._FLUORESCENCE_DETECTORS:
-            # TODO: this is crude
+            # TODO: this is a crude assumption for WLL over DIODE
             laser_type = (
                 LightSourceType.WLL
                 if LightSourceType.WLL in active_lasers
@@ -515,13 +530,39 @@ class _LeicaMetadataParser:
             laser_state = self.laser_system_state.get_laser_by_type(laser_type)
             return self._infer_channel_from_laser_state(laser_state)
 
-        # Try exact match with beam route
-        if (detector_name, beam_route) in self._CHANNEL_DETECTION_MAP:
-            return self._CHANNEL_DETECTION_MAP[(detector_name, beam_route)]
+        # # Try exact match with beam route
+        # if (detector_name, beam_route) in self._CHANNEL_DETECTION_MAP:
+        #     if _CHANNEL_DETECTION_MAP[detector_name, beam_route] -> CARS:
+        #         laser_state = self.laser_system_state.get_laser_by_type(LightSourceType.CRS)
+        #         excitation_nm = laser_state.WavelengthDouble
+        #         emission_nm = calculate_antistokes_wavelength()
+        #         return Channel()
 
-        # Try match without beam route
-        if (detector_name, None) in self._CHANNEL_DETECTION_MAP:
-            return self._CHANNEL_DETECTION_MAP[(detector_name, None)]
+        #     elif SRS:
+        #         laser_state = self.laser_system_state.get_laser_by_type(LightSourceType.CRS)
+        #         excitation_nm = laser_state.WavelengthDouble
+        #         emission_nm = calculate_antistokes_wavelength()
+        #         return Channel()
+
+        #     else:
+        #         return self._CHANNEL_DETECTION_MAP[(detector_name, None)]
+
+        # # Try match without beam route
+        # if (detector_name, None) in self._CHANNEL_DETECTION_MAP:
+        #     if _CHANNEL_DETECTION_MAP[detector_name, beam_route] -> CARS:
+        #         laser_state = self.laser_system_state.get_laser_by_type(LightSourceType.CRS)
+        #         excitation_nm = laser_state.WavelengthDouble
+        #         emission_nm = calculate_antistokes_wavelength()
+        #         return Channel()
+
+        #     elif SRS:
+        #         laser_state = self.laser_system_state.get_laser_by_type(LightSourceType.CRS)
+        #         excitation_nm = laser_state.WavelengthDouble
+        #         emission_nm = calculate_antistokes_wavelength()
+        #         return Channel()
+
+        #     else:
+        #         return self._CHANNEL_DETECTION_MAP[(detector_name, None)]
 
         raise ValueError(
             f"Could not determine channel from DetectorName: {detector_name}, "
