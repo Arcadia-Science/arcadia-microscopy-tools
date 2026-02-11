@@ -57,8 +57,7 @@ def list_image_names(lif_path: Path) -> list[str]:
         List of image names in the file
     """
     with liffile.LifFile(lif_path) as f:
-        image_names = [image.name for image in f.images]
-    return image_names
+        return [image.name for image in f.images]
 
 
 def create_image_metadata_from_lif(
@@ -193,13 +192,13 @@ class _LeicaMetadataParser:
                 f"Expected {num_channels} channels but got {len(self.channels)} in channels list"
             )
 
-        channel_metadata_list = []
-        for i, lif_channel in enumerate(self.image_description.lif_channels):
-            channel = self.channels[i] if self.channels else None
-            channel_metadata = self._parse_channel_metadata(lif_channel, channel)
-            channel_metadata_list.append(channel_metadata)
-
-        return channel_metadata_list
+        return [
+            self._parse_channel_metadata(
+                lif_channel,
+                self.channels[i] if self.channels else None,
+            )
+            for i, lif_channel in enumerate(self.image_description.lif_channels)
+        ]
 
     def _parse_channel_metadata(
         self,
@@ -232,19 +231,21 @@ class _LeicaMetadataParser:
         """
 
         active_lasers = self.laser_system_state.active_lasers
-        if len(active_lasers) < 1:
+        if not active_lasers:
             raise ValueError(f"No active laser for '{self.image_name}' in {self.lif_path}")
 
-        elif len(active_lasers) == 1 and active_lasers[0] in (1, 4):  # UV or WLL
+        if len(active_lasers) == 1 and active_lasers[0] in (
+            LightSourceType.DIODE,
+            LightSourceType.WLL,
+        ):
             active_laser_state = self.laser_system_state.get_laser_by_type(active_lasers[0])
             return self._infer_channel_from_laser_state(active_laser_state)
 
-        else:
-            return self._infer_channel_from_detector(lif_channel, active_lasers)
+        return self._infer_channel_from_detector(lif_channel, active_lasers)
 
     def _infer_channel_from_laser_state(self, laser_state: LaserState) -> Channel:
         """Infer channel from laser state using excitation wavelength."""
-        if laser_state.LightSourceType == "CRS":
+        if laser_state.LightSourceType == LightSourceType.CRS:
             raise ValueError("Cannot infer channel from CRS laser")
 
         # Can reasonably infer channel only in the case where either the UV or WLL laser is ON
@@ -280,12 +281,13 @@ class _LeicaMetadataParser:
 
         if detector_name in self._FLUORESCENCE_DETECTORS:
             # TODO: this is crude
-            if LightSourceType.WLL in active_lasers:
-                laser_state = self.laser_system_state.get_laser_by_type(LightSourceType.WLL)
-                return self._infer_channel_from_laser_state(laser_state)
-            else:
-                laser_state = self.laser_system_state.get_laser_by_type(LightSourceType.DIODE)
-                return self._infer_channel_from_laser_state(laser_state)
+            laser_type = (
+                LightSourceType.WLL
+                if LightSourceType.WLL in active_lasers
+                else LightSourceType.DIODE
+            )
+            laser_state = self.laser_system_state.get_laser_by_type(laser_type)
+            return self._infer_channel_from_laser_state(laser_state)
 
         # Try exact match with beam route
         if (detector_name, beam_route) in self._CHANNEL_DETECTION_MAP:
@@ -347,6 +349,11 @@ class _LeicaMetadataParser:
             raise ValueError(
                 f"Could not parse timestamp for image '{self.image_name}' in {self.lif_path}"
             ) from ex
+
+    @property
+    def _confocal_settings(self) -> dict:
+        """Get ATLConfocalSettingDefinition from hardware settings."""
+        return self.image.attrs.get("HardwareSetting", {}).get("ATLConfocalSettingDefinition", {})
 
     def _parse_nominal_dimensions(self) -> NominalDimensions:
         """Parse nominal dimensions from LIF metadata.
@@ -450,10 +457,7 @@ class _LeicaMetadataParser:
 
     def _parse_acquisition_settings(self) -> AcquisitionSettings:
         """Parse acquisition settings from LIF metadata."""
-
-        microscope_data = self.image.attrs.get("HardwareSetting", {}).get(
-            "ATLConfocalSettingDefinition", {}
-        )
+        microscope_data = self._confocal_settings
 
         zoom = float(microscope_data.get("Zoom", np.nan))
         pixel_dwell_time_s = float(microscope_data.get("PixelDwellTime", np.nan))
@@ -484,9 +488,7 @@ class _LeicaMetadataParser:
 
     def _parse_microscope_settings(self) -> MicroscopeConfig:
         """Parse microscope settings from LIF metadata."""
-        microscope_data = self.image.attrs.get("HardwareSetting", {}).get(
-            "ATLConfocalSettingDefinition", {}
-        )
+        microscope_data = self._confocal_settings
 
         magnification = int(microscope_data.get("Magnification", 0))
         numerical_aperture = float(microscope_data.get("NumericalAperture", np.nan))
@@ -508,28 +510,17 @@ class _LeicaMetadataParser:
             value: The value which might contain wavelength information
 
         Returns:
-            Wavelength in nanometers, or None if value cannot be parsed
+            Wavelength in nanometers
+
+        Raises:
+            ValueError: If value cannot be parsed as a wavelength
         """
-        # If it's already a number, assume it's in appropriate units
-        if isinstance(value, int | float):
+        try:
             wavelength = float(value)
             # Convert to nm if it looks like it's in meters (< 1)
-            if wavelength < 1:
-                wavelength *= 1e9
-            return wavelength
-
-        # If it's a string, try to parse it
-        if isinstance(value, str):
-            try:
-                wavelength = float(value)
-                # Convert to nm if it looks like it's in meters (< 1)
-                if wavelength < 1:
-                    wavelength *= 1e9
-                return wavelength
-            except (ValueError, TypeError):
-                pass
-
-        raise ValueError(f"Cannot determine wavelength from {value}")
+            return wavelength * 1e9 if wavelength < 1 else wavelength
+        except (ValueError, TypeError) as ex:
+            raise ValueError(f"Cannot determine wavelength from {value}") from ex
 
 
 @dataclass(frozen=True)
@@ -715,8 +706,8 @@ class LaserSystemState:
 
     @property
     def active_lasers(self) -> list[LightSourceType]:
-        """Property returning list of active laser types."""
-        return self.get_active_lasers()
+        """List of active laser types based on power state."""
+        return [laser.LightSourceType for laser in self.lasers if laser.PowerState == PowerState.ON]
 
     def get_laser_by_type(self, laser_type: LightSourceType) -> LaserState:
         """Get laser state by light source type."""
@@ -727,10 +718,6 @@ class LaserSystemState:
     ) -> LaserState:
         """Get laser state by light source name."""
         return next(laser for laser in self.lasers if laser.LightSourceName == laser_name)
-
-    def get_active_lasers(self) -> list[LightSourceType]:
-        """Get list of active laser types based on power state."""
-        return [laser.LightSourceType for laser in self.lasers if laser.PowerState == PowerState.ON]
 
 
 class LaserValue(BaseModel):
