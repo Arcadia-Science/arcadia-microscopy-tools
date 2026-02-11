@@ -1,14 +1,18 @@
 from __future__ import annotations
+import warnings
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 import liffile
 import numpy as np
+from pydantic import BaseModel
 
-from .channels import CARS, SRS, Channel
+from .channels import BRIGHTFIELD, CARS, SHG, SRS, Channel
 from .metadata_structures import (
     AcquisitionSettings,
     ChannelMetadata,
@@ -41,102 +45,6 @@ def _get_required_attr(element: ET.Element, name: str) -> str:
     if value is None:
         raise ValueError(f"Missing attribute {name!r} on <{element.tag}>")
     return value
-
-
-@dataclass(frozen=True)
-class _LifChannel:
-    """Recreated from liffile where it is not exposed and ignores properties."""
-
-    data_type: int
-    channel_tag: int
-    resolution: int
-    lut_name: str
-    bytes_inc: int
-    bit_inc: int
-    min_value: float
-    max_value: float
-    unit: str
-    name_of_measured_quantity: str
-    properties: Mapping[str, str]
-
-    @classmethod
-    def from_xml(cls, element: ET.Element) -> _LifChannel:
-        """Parse a _LifChannel from a <ChannelDescription> XML element.
-
-        Args:
-            element: The <ChannelDescription> XML element
-
-        Returns:
-            _LifChannel object parsed from XML
-        """
-        # Extract channel properties
-        props: dict[str, str] = {}
-        for prop in element.findall("ChannelProperty"):
-            key_element = prop.find("Key")
-            value_element = prop.find("Value")
-            if key_element is None or value_element is None or key_element.text is None:
-                continue
-            props[key_element.text] = value_element.text or ""
-
-        return cls(
-            data_type=_as_int(_get_required_attr(element, "DataType"), ctx="DataType"),
-            channel_tag=_as_int(_get_required_attr(element, "ChannelTag"), ctx="ChannelTag"),
-            resolution=_as_int(_get_required_attr(element, "Resolution"), ctx="Resolution"),
-            lut_name=_get_required_attr(element, "LUTName"),
-            bytes_inc=_as_int(_get_required_attr(element, "BytesInc"), ctx="BytesInc"),
-            bit_inc=_as_int(_get_required_attr(element, "BitInc"), ctx="BitInc"),
-            min_value=_as_float(_get_required_attr(element, "Min"), ctx="Min"),
-            max_value=_as_float(_get_required_attr(element, "Max"), ctx="Max"),
-            unit=element.get("Unit", ""),
-            name_of_measured_quantity=element.get("NameOfMeasuredQuantity", ""),
-            properties=props,
-        )
-
-
-@dataclass(frozen=True)
-class _LifDimension:
-    """Recreated from liffile where it is not exposed."""
-
-    dim_id: int
-    number_of_elements: int
-    origin: float
-    length: float
-    unit: str
-    bit_inc: int
-    bytes_inc: int
-
-    @property
-    def step(self) -> float:
-        return self.length / self.number_of_elements
-
-    @classmethod
-    def from_xml(cls, element: ET.Element) -> _LifDimension:
-        """Parse a _LifDimension from a <DimensionDescription> XML element.
-
-        Args:
-            element: The <DimensionDescription> XML element
-
-        Returns:
-            _LifDimension object parsed from XML
-        """
-        return cls(
-            dim_id=_as_int(_get_required_attr(element, "DimID"), ctx="DimID"),
-            number_of_elements=_as_int(
-                _get_required_attr(element, "NumberOfElements"),
-                ctx="NumberOfElements",
-            ),
-            origin=_as_float(_get_required_attr(element, "Origin"), ctx="Origin"),
-            length=_as_float(_get_required_attr(element, "Length"), ctx="Length"),
-            unit=_get_required_attr(element, "Unit"),
-            bit_inc=_as_int(_get_required_attr(element, "BitInc"), ctx="BitInc"),
-            bytes_inc=_as_int(_get_required_attr(element, "BytesInc"), ctx="BytesInc"),
-        )
-
-
-@dataclass(frozen=True)
-class ImageDescription:
-    lif_channels: list[_LifChannel]
-    lif_dimensions: list[_LifDimension]
 
 
 def list_image_names(lif_path: Path) -> list[str]:
@@ -176,10 +84,18 @@ def create_image_metadata_from_lif(
 class _LeicaMetadataParser:
     """Parser for extracting metadata from Leica LIF files."""
 
+    # Set of detectors used for either the UV (405 nm) or WLL laser
+    _FLUORESCENCE_DETECTORS = {"HyD S 1", "HyD S 2", "HyD X 3", "HyD R 4"}
+
     # Map of (detector_name, beam_route) to Channel for automatic channel detection
     _CHANNEL_DETECTION_MAP = {
-        ("F-SRS", None): SRS,  # beam_route typically "10;0" but not checked
+        ("F-SRS", None): SRS,  # expected beam_route is "10;0" but not checked
         ("HyD NDD 1", "20;21"): CARS,
+        # TODO: figure out beam route for true SHG vs pseudo-SHG (brightfield)
+        # true SHG uses CRS pump laser (Stokes off) while pseudo-SHG uses WLL
+        ("F-SHG", None): BRIGHTFIELD,
+        # ("F-SHG", None): SHG,
+        ("E-SHG", None): SHG,
     }
 
     def __init__(
@@ -209,26 +125,28 @@ class _LeicaMetadataParser:
             self.timestamp = self._parse_timestamp()
 
             # Parse image description
-            image_description_element = self.image.xml_element.find("./Data/Image/ImageDescription")
-            if image_description_element is None:
-                raise ValueError(
-                    f"Missing image description metadata for image '{self.image_name}' "
-                    f"in {self.lif_path}"
-                )
-            self.image_description = self._parse_image_description(image_description_element)
+            self.image_description = self._parse_image_description()
+
+            # Parse laser system state
+            self.laser_system_state = self._parse_laser_array_data()
 
             channel_metadata_list = self._parse_all_channels()
             return ImageMetadata(self.sizes, channel_metadata_list)
 
-    def _parse_image_description(self, image_description_element: ET.Element) -> ImageDescription:
+    def _parse_image_description(self) -> ImageDescription:
         """Parse the ImageDescription XML element into structured data.
-
-        Args:
-            image_description_element: The <ImageDescription> XML element
 
         Returns:
             ImageDescription containing channels and dimensions
         """
+        # Find the ImageDescription XML element
+        image_description_element = self.image.xml_element.find("./Data/Image/ImageDescription")
+        if image_description_element is None:
+            raise ValueError(
+                f"Missing image description metadata for image '{self.image_name}' "
+                f"in {self.lif_path}"
+            )
+
         channels_element = image_description_element.find("Channels")
         dimensions_element = image_description_element.find("Dimensions")
         if channels_element is None or dimensions_element is None:
@@ -247,11 +165,24 @@ class _LeicaMetadataParser:
         ]
 
     def _parse_dimensions_from_xml(self, dimensions_element: ET.Element) -> list[_LifDimension]:
-        """Parse dimension descriptions from the <Dimensions> XML element"""
+        """Parse dimension descriptions from the <Dimensions> XML element."""
         return [
             _LifDimension.from_xml(element)
             for element in dimensions_element.findall("DimensionDescription")
         ]
+
+    def _parse_laser_array_data(self) -> LaserSystemState:
+        """Parse laser system states from hardware settings."""
+
+        laser_array_data = (
+            self.image.attrs.get("HardwareSetting", {})
+            .get("ATLConfocalSettingDefinition", {})
+            .get("LaserArray", {})
+            .get("Laser", {})
+        )
+        return LaserSystemState(
+            lasers=[LaserState(**laser_data) for laser_data in laser_array_data]
+        )
 
     def _parse_all_channels(self) -> list[ChannelMetadata]:
         """Parse metadata for all channels in the LIF image."""
@@ -295,9 +226,58 @@ class _LeicaMetadataParser:
         )
 
     def _infer_channel(self, lif_channel: _LifChannel) -> Channel:
-        """Infer channel type from detector metadata."""
+        """Infer channel ...
+
+        Code reflects how silly and cumbersome this is.
+        """
+
+        active_lasers = self.laser_system_state.active_lasers
+        if len(active_lasers) < 1:
+            raise ValueError(f"No active laser for '{self.image_name}' in {self.lif_path}")
+
+        elif len(active_lasers) == 1 and active_lasers[0] in (1, 4):  # UV or WLL
+            active_laser_state = self.laser_system_state.get_laser_by_type(active_lasers[0])
+            return self._infer_channel_from_laser_state(active_laser_state)
+
+        else:
+            return self._infer_channel_from_detector(lif_channel, active_lasers)
+
+    def _infer_channel_from_laser_state(self, laser_state: LaserState) -> Channel:
+        """"""
+        if laser_state.LightSourceType == "CRS":
+            raise ValueError("Cannot infer channel from CRS laser")
+
+        # Can reasonably infer channel only in the case where either the UV or WLL laser is ON
+        excitation_wavelength_nm = self._extract_wavelength_value(laser_state.WavelengthDouble)
+        try:
+            return Channel.from_excitation_wavelength(
+                excitation_wavelength_nm, name=laser_state.LightSourceType.name
+            )
+        except ValueError:
+            warnings.warn(
+                f"Parsed excitation wavelength {excitation_wavelength_nm} nm outside accepted "
+                "range for Channel inference. Pass a Channel instance to prevent this warning.",
+                stacklevel=2,
+            )
+            return Channel.from_excitation_wavelength(500, name=laser_state.LightSourceType.name)
+
+    def _infer_channel_from_detector(
+        self,
+        lif_channel: _LifChannel,
+        active_lasers: list[LightSourceType],
+    ) -> Channel:
+        """"""
         detector_name = lif_channel.properties.get("DetectorName")
         beam_route = lif_channel.properties.get("BeamRoute")
+
+        if detector_name in self._FLUORESCENCE_DETECTORS:
+            # TODO: this is crude
+            if LightSourceType.WLL in active_lasers:
+                laser_state = self.laser_system_state.get_laser_by_type(LightSourceType.WLL)
+                return self._infer_channel_from_laser_state(laser_state)
+            else:
+                laser_state = self.laser_system_state.get_laser_by_type(LightSourceType.DIODE)
+                return self._infer_channel_from_laser_state(laser_state)
 
         # Try exact match with beam route
         if (detector_name, beam_route) in self._CHANNEL_DETECTION_MAP:
@@ -306,8 +286,6 @@ class _LeicaMetadataParser:
         # Try match without beam route
         if (detector_name, None) in self._CHANNEL_DETECTION_MAP:
             return self._CHANNEL_DETECTION_MAP[(detector_name, None)]
-
-        #
 
         raise ValueError(
             f"Could not determine channel from DetectorName: {detector_name}, "
@@ -447,7 +425,8 @@ class _LeicaMetadataParser:
 
         w_values_nm = None
         if self.dimensions.is_spectral:
-            w_values_nm = _WavelengthExtractor(self.image, self.sizes)._try_lambda_scan_path()
+            w_values_nm = None
+            # w_values_nm = _WavelengthExtractor(self.image, self.sizes)._try_lambda_scan_path()
 
         return MeasuredDimensions(
             z_values_um=z_values_um,
@@ -507,139 +486,8 @@ class _LeicaMetadataParser:
             power_mw=None,
         )
 
-
-class _WavelengthExtractor:
-    """Extracts wavelength information from LIF file metadata.
-
-    Handles the complexity of finding wavelength data in various locations
-    within the LIF metadata structure, which varies by acquisition mode.
-    """
-
-    def __init__(self, image: liffile.LifImageABC, sizes: dict[str, int]):
-        self.image = image
-        self.sizes = sizes
-
-    def extract_wavelengths(self, channel: Channel) -> Float64Array | None:
-        """Find laser wavelength information for the given channel.
-
-        Tries multiple strategies depending on the acquisition mode:
-            1. For Lambda (Λ) scans: checks LaserValues path
-            2. For CARS/SRS: checks HardwareSetting LaserArray
-            3. Falls back to recursive search through all attrs
-
-        Args:
-            channel: The channel being parsed (determines which paths to check)
-
-        Returns:
-            Array of wavelengths in nanometers, or None if no wavelengths found.
-        """
-        # Strategy 1: Lambda (Λ) scans - check LaserValues path
-        if "Λ" in self.sizes and self.sizes["Λ"] > 1:
-            wavelengths = self._try_lambda_scan_path()
-            if wavelengths is not None:
-                return wavelengths
-
-        # Strategy 2: CARS/SRS channels - check HardwareSetting path
-        if channel in (CARS, SRS):
-            wavelengths = self._try_cars_srs_path()
-            if wavelengths is not None:
-                return wavelengths
-
-        # Strategy 3: Recursive search through all attrs
-        return self._recursive_search()
-
-    def _try_lambda_scan_path(self) -> Float64Array | None:
-        """Try to extract wavelengths from Lambda scan specific path."""
-        try:
-            laser_values = self.image.attrs["LaserValues"]["Laser"]["StagePosition"]["LaserValues"]
-            if laser_values is not None:
-                results = []
-                self._search_wavelengths(laser_values, results)
-                if results:
-                    wavelengths = sorted(set(results))
-                    return np.array(wavelengths, dtype=np.float64)
-        except (KeyError, TypeError):
-            pass
-        return None
-
-    def _try_cars_srs_path(self) -> Float64Array | None:
-        """Try to extract wavelengths from CARS/SRS specific path."""
-        try:
-            laser_array = self.image.attrs["HardwareSetting"]["ATLConfocalSettingDefinition"][
-                "LaserArray"
-            ]["Laser"]
-            # Try to find the CRS laser (often at index 2)
-            if isinstance(laser_array, list) and len(laser_array) > 2:
-                crs_laser = laser_array[2]
-                if crs_laser.get("LaserName") == "CRS":
-                    results = []
-                    self._search_wavelengths(crs_laser, results)
-                    if results:
-                        wavelengths = sorted(set(results))
-                        return np.array(wavelengths, dtype=np.float64)
-        except (KeyError, TypeError, IndexError):
-            pass
-        return None
-
-    def _recursive_search(self) -> Float64Array | None:
-        """Fall back to searching through all metadata recursively."""
-        results = []
-        self._search_wavelengths(self.image.attrs, results)
-
-        if results:
-            wavelengths = sorted(set(results))
-            return np.array(wavelengths, dtype=np.float64)
-
-        return None
-
-    def _search_wavelengths(
-        self, data: dict | list | str | int | float, results: list[float]
-    ) -> None:
-        """Recursively search through metadata structure for wavelength values.
-
-        Args:
-            data: Current node in the metadata structure
-            results: List to accumulate found wavelengths (modified in place)
-        """
-        if isinstance(data, dict):
-            # Look for wavelength fields in this dict
-            # Prefer WavelengthDouble over Wavelength if both exist
-            for key in ["WavelengthDouble", "WavelengthBegin", "WavelengthEnd", "Excitation"]:
-                if key in data:
-                    wavelength = self._extract_wavelength_value(data[key])
-                    if wavelength is not None:
-                        results.append(wavelength)
-
-            # Only check "Wavelength" if "WavelengthDouble" wasn't found
-            if "Wavelength" in data and "WavelengthDouble" not in data:
-                wavelength = self._extract_wavelength_value(data["Wavelength"])
-                if wavelength is not None:
-                    results.append(wavelength)
-
-            # If we have begin and end, generate a range
-            if "WavelengthBegin" in data and "WavelengthEnd" in data:
-                begin = self._extract_wavelength_value(data["WavelengthBegin"])
-                end = self._extract_wavelength_value(data["WavelengthEnd"])
-                if begin is not None and end is not None and "WavelengthStep" in data:
-                    step = self._extract_wavelength_value(data["WavelengthStep"])
-                    if step is not None and step > 0:
-                        # Generate wavelength range
-                        current = begin
-                        while current <= end:
-                            results.append(current)
-                            current += step
-                        return  # Don't recurse further into this branch
-
-            # Recurse into child values
-            for value in data.values():
-                self._search_wavelengths(value, results)
-
-        elif isinstance(data, list):
-            # Recurse into list items
-            for item in data:
-                self._search_wavelengths(item, results)
-
-    def _extract_wavelength_value(self, value: str | int | float | dict | list) -> float | None:
+    @staticmethod
+    def _extract_wavelength_value(value: str | int | float) -> float:
         """Extract a wavelength value and convert to nanometers if needed.
 
         Args:
@@ -667,4 +515,190 @@ class _WavelengthExtractor:
             except (ValueError, TypeError):
                 pass
 
-        return None
+        raise ValueError(f"Cannot determine wavelength from {value}")
+
+
+@dataclass(frozen=True)
+class _LifChannel:
+    """Recreated from liffile where it is not exposed and ignores properties."""
+
+    data_type: int
+    channel_tag: int
+    resolution: int
+    lut_name: str
+    bytes_inc: int
+    bit_inc: int
+    min_value: float
+    max_value: float
+    unit: str
+    name_of_measured_quantity: str
+    properties: Mapping[str, str]
+
+    @classmethod
+    def from_xml(cls, element: ET.Element) -> _LifChannel:
+        """Parse a _LifChannel from a <ChannelDescription> XML element.
+
+        Args:
+            element: The <ChannelDescription> XML element
+
+        Returns:
+            _LifChannel object parsed from XML
+        """
+        # Extract channel properties
+        props: dict[str, str] = {}
+        for prop in element.findall("ChannelProperty"):
+            key_element = prop.find("Key")
+            value_element = prop.find("Value")
+            if key_element is None or value_element is None or key_element.text is None:
+                continue
+            props[key_element.text] = value_element.text or ""
+
+        return cls(
+            data_type=_as_int(_get_required_attr(element, "DataType"), ctx="DataType"),
+            channel_tag=_as_int(_get_required_attr(element, "ChannelTag"), ctx="ChannelTag"),
+            resolution=_as_int(_get_required_attr(element, "Resolution"), ctx="Resolution"),
+            lut_name=_get_required_attr(element, "LUTName"),
+            bytes_inc=_as_int(_get_required_attr(element, "BytesInc"), ctx="BytesInc"),
+            bit_inc=_as_int(_get_required_attr(element, "BitInc"), ctx="BitInc"),
+            min_value=_as_float(_get_required_attr(element, "Min"), ctx="Min"),
+            max_value=_as_float(_get_required_attr(element, "Max"), ctx="Max"),
+            unit=element.get("Unit", ""),
+            name_of_measured_quantity=element.get("NameOfMeasuredQuantity", ""),
+            properties=props,
+        )
+
+
+@dataclass(frozen=True)
+class _LifDimension:
+    """Recreated from liffile where it is not exposed."""
+
+    dim_id: int
+    number_of_elements: int
+    origin: float
+    length: float
+    unit: str
+    bit_inc: int
+    bytes_inc: int
+
+    @property
+    def step(self) -> float:
+        return self.length / self.number_of_elements
+
+    @classmethod
+    def from_xml(cls, element: ET.Element) -> _LifDimension:
+        """Parse a _LifDimension from a <DimensionDescription> XML element.
+
+        Args:
+            element: The <DimensionDescription> XML element
+
+        Returns:
+            _LifDimension object parsed from XML
+        """
+        return cls(
+            dim_id=_as_int(_get_required_attr(element, "DimID"), ctx="DimID"),
+            number_of_elements=_as_int(
+                _get_required_attr(element, "NumberOfElements"),
+                ctx="NumberOfElements",
+            ),
+            origin=_as_float(_get_required_attr(element, "Origin"), ctx="Origin"),
+            length=_as_float(_get_required_attr(element, "Length"), ctx="Length"),
+            unit=_get_required_attr(element, "Unit"),
+            bit_inc=_as_int(_get_required_attr(element, "BitInc"), ctx="BitInc"),
+            bytes_inc=_as_int(_get_required_attr(element, "BytesInc"), ctx="BytesInc"),
+        )
+
+
+@dataclass(frozen=True)
+class ImageDescription:
+    lif_channels: list[_LifChannel]
+    lif_dimensions: list[_LifDimension]
+
+
+class PowerState(str, Enum):
+    ON = "On"
+    OFF = "Off"
+
+
+class LightSourceType(int, Enum):
+    DIODE = 1
+    WLL = 4
+    CRS = 6
+
+
+class BeamPositionInfo(BaseModel):
+    BeamPositionLevel: int
+    BeamPosition: int
+
+    model_config = {"frozen": True}
+
+
+class BeamRoute(BaseModel):
+    BeamPosition: BeamPositionInfo | list[BeamPositionInfo]
+    Version: int
+
+    model_config = {"frozen": True}
+
+
+class LaserLine(BaseModel):
+    IsLineActive: int
+
+    model_config = {"frozen": True}
+
+
+class LaserState(BaseModel):
+    """Represents the state of a single laser in the system."""
+
+    # Required fields
+    BeamRoute: BeamRoute
+    Version: int
+    LightSourceType: LightSourceType
+    LaserName: str
+    StedAlignFlag: int
+    CanDoLinearOutputPower: int
+    CanDoPulsing: int
+    CanDoOutputPowerWatt: int
+    HighPowerModeActive: int
+    LightSourceName: str
+    OutputPowerWatt: float
+    Wavelength: float
+    WavelengthDouble: float
+    PowerState: PowerState
+    CanDoChangeWavelength: int
+
+    # Optional fields (only present in some lasers)
+    OutputPowerPercentage: float | None = None
+    LaserLines: list[LaserLine] | None = None
+    ShutterState: int | None = None
+    ConstantPowerMode: int | None = None
+    TargetOutputPower: float | None = None
+    TuningRangeMin: float | None = None
+    TuningRangeMax: float | None = None
+    PumpOutputPowerPercent: float | None = None
+    PumpOutputPower: float | None = None
+    PumpWavelength: float | None = None
+
+    model_config = {"frozen": True}
+
+
+class LaserSystemState(BaseModel):
+    lasers: list[LaserState] = field(default_factory=list)
+
+    model_config = {"frozen": True}
+
+    @property
+    def active_lasers(self) -> list[LightSourceType]:
+        return self.get_active_lasers()
+
+    def get_laser_by_type(self, laser_type: LightSourceType) -> LaserState:
+        """"""
+        return next(laser for laser in self.lasers if laser.LightSourceType == laser_type)
+
+    def get_laser_by_name(
+        self, laser_name: Literal["UV Light", "SuperContVisible Light", "CARS Light (Attenuator)"]
+    ) -> LaserState:
+        """"""
+        return next(laser for laser in self.lasers if laser.LightSourceName == laser_name)
+
+    def get_active_lasers(self) -> list[LightSourceType]:
+        """"""
+        return [laser.LightSourceType for laser in self.lasers if laser.PowerState == PowerState.ON]
