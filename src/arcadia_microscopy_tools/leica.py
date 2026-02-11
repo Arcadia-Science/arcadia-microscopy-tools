@@ -1,8 +1,6 @@
 from __future__ import annotations
 import warnings
 import xml.etree.ElementTree as ET
-from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -10,7 +8,7 @@ from typing import Literal
 
 import liffile
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 from .channels import BRIGHTFIELD, CARS, SHG, SRS, Channel
 from .metadata_structures import (
@@ -25,26 +23,51 @@ from .microscopy import ImageMetadata
 from .typing import Float64Array
 
 
-def _as_int(s: str, *, ctx: str = "") -> int:
-    try:
-        return int(s)
-    except ValueError as ex:
-        raise ValueError(f"Expected int{(' for ' + ctx) if ctx else ''}, got {s!r}") from ex
-
-
-def _as_float(s: str, *, ctx: str = "") -> float:
-    try:
-        return float(s)
-    except ValueError as ex:
-        raise ValueError(f"Expected float{(' for ' + ctx) if ctx else ''}, got {s!r}") from ex
-
-
 def _get_required_attr(element: ET.Element, name: str) -> str:
     """Get a required attribute from an XML element."""
     value = element.get(name)
     if value is None:
         raise ValueError(f"Missing attribute {name!r} on <{element.tag}>")
     return value
+
+
+def _parse_channel_dict_from_xml(element: ET.Element) -> dict:
+    """Extract channel data from XML element to dict for Pydantic instantiation."""
+    # Extract channel properties
+    props: dict[str, str] = {}
+    for prop in element.findall("ChannelProperty"):
+        key_element = prop.find("Key")
+        value_element = prop.find("Value")
+        if key_element is None or value_element is None or key_element.text is None:
+            continue
+        props[key_element.text] = value_element.text or ""
+
+    return {
+        "data_type": int(_get_required_attr(element, "DataType")),
+        "channel_tag": int(_get_required_attr(element, "ChannelTag")),
+        "resolution": int(_get_required_attr(element, "Resolution")),
+        "lut_name": _get_required_attr(element, "LUTName"),
+        "bytes_inc": int(_get_required_attr(element, "BytesInc")),
+        "bit_inc": int(_get_required_attr(element, "BitInc")),
+        "min_value": float(_get_required_attr(element, "Min")),
+        "max_value": float(_get_required_attr(element, "Max")),
+        "unit": element.get("Unit", ""),
+        "name_of_measured_quantity": element.get("NameOfMeasuredQuantity", ""),
+        "properties": props,
+    }
+
+
+def _parse_dimension_dict_from_xml(element: ET.Element) -> dict:
+    """Extract dimension data from XML element to dict for Pydantic instantiation."""
+    return {
+        "dim_id": int(_get_required_attr(element, "DimID")),
+        "number_of_elements": int(_get_required_attr(element, "NumberOfElements")),
+        "origin": float(_get_required_attr(element, "Origin")),
+        "length": float(_get_required_attr(element, "Length")),
+        "unit": _get_required_attr(element, "Unit"),
+        "bit_inc": int(_get_required_attr(element, "BitInc")),
+        "bytes_inc": int(_get_required_attr(element, "BytesInc")),
+    }
 
 
 def list_image_names(lif_path: Path) -> list[str]:
@@ -154,21 +177,23 @@ class _LeicaMetadataParser:
         lif_channels = self._parse_channels_from_xml(channels_element)
         lif_dimensions = self._parse_dimensions_from_xml(dimensions_element)
 
-        return ImageDescription(lif_channels, lif_dimensions)
+        return ImageDescription(lif_channels=lif_channels, lif_dimensions=lif_dimensions)
 
     def _parse_channels_from_xml(self, channels_element: ET.Element) -> list[_LifChannel]:
         """Parse channel descriptions from the <Channels> XML element."""
-        return [
-            _LifChannel.from_xml(element)
+        channel_data = [
+            _parse_channel_dict_from_xml(element)
             for element in channels_element.findall("ChannelDescription")
         ]
+        return [_LifChannel(**data) for data in channel_data]
 
     def _parse_dimensions_from_xml(self, dimensions_element: ET.Element) -> list[_LifDimension]:
         """Parse dimension descriptions from the <Dimensions> XML element."""
-        return [
-            _LifDimension.from_xml(element)
+        dimension_data = [
+            _parse_dimension_dict_from_xml(element)
             for element in dimensions_element.findall("DimensionDescription")
         ]
+        return [_LifDimension(**data) for data in dimension_data]
 
     def _parse_laser_array_data(self) -> LaserSystemState:
         """Parse laser system states from hardware settings."""
@@ -523,8 +548,7 @@ class _LeicaMetadataParser:
             raise ValueError(f"Cannot determine wavelength from {value}") from ex
 
 
-@dataclass(frozen=True)
-class _LifChannel:
+class _LifChannel(BaseModel):
     """Recreated from liffile where it is not exposed and ignores properties."""
 
     data_type: int
@@ -537,44 +561,12 @@ class _LifChannel:
     max_value: float
     unit: str
     name_of_measured_quantity: str
-    properties: Mapping[str, str]
+    properties: dict[str, str]
 
-    @classmethod
-    def from_xml(cls, element: ET.Element) -> _LifChannel:
-        """Parse a _LifChannel from a <ChannelDescription> XML element.
-
-        Args:
-            element: The <ChannelDescription> XML element
-
-        Returns:
-            _LifChannel object parsed from XML
-        """
-        # Extract channel properties
-        props: dict[str, str] = {}
-        for prop in element.findall("ChannelProperty"):
-            key_element = prop.find("Key")
-            value_element = prop.find("Value")
-            if key_element is None or value_element is None or key_element.text is None:
-                continue
-            props[key_element.text] = value_element.text or ""
-
-        return cls(
-            data_type=_as_int(_get_required_attr(element, "DataType"), ctx="DataType"),
-            channel_tag=_as_int(_get_required_attr(element, "ChannelTag"), ctx="ChannelTag"),
-            resolution=_as_int(_get_required_attr(element, "Resolution"), ctx="Resolution"),
-            lut_name=_get_required_attr(element, "LUTName"),
-            bytes_inc=_as_int(_get_required_attr(element, "BytesInc"), ctx="BytesInc"),
-            bit_inc=_as_int(_get_required_attr(element, "BitInc"), ctx="BitInc"),
-            min_value=_as_float(_get_required_attr(element, "Min"), ctx="Min"),
-            max_value=_as_float(_get_required_attr(element, "Max"), ctx="Max"),
-            unit=element.get("Unit", ""),
-            name_of_measured_quantity=element.get("NameOfMeasuredQuantity", ""),
-            properties=props,
-        )
+    model_config = {"frozen": True}
 
 
-@dataclass(frozen=True)
-class _LifDimension:
+class _LifDimension(BaseModel):
     """Recreated from liffile where it is not exposed."""
 
     dim_id: int
@@ -585,41 +577,22 @@ class _LifDimension:
     bit_inc: int
     bytes_inc: int
 
+    model_config = {"frozen": True}
+
+    @computed_field  # type: ignore[misc]
     @property
     def step(self) -> float:
         """Calculate step size for this dimension."""
         return self.length / self.number_of_elements
 
-    @classmethod
-    def from_xml(cls, element: ET.Element) -> _LifDimension:
-        """Parse a _LifDimension from a <DimensionDescription> XML element.
 
-        Args:
-            element: The <DimensionDescription> XML element
-
-        Returns:
-            _LifDimension object parsed from XML
-        """
-        return cls(
-            dim_id=_as_int(_get_required_attr(element, "DimID"), ctx="DimID"),
-            number_of_elements=_as_int(
-                _get_required_attr(element, "NumberOfElements"),
-                ctx="NumberOfElements",
-            ),
-            origin=_as_float(_get_required_attr(element, "Origin"), ctx="Origin"),
-            length=_as_float(_get_required_attr(element, "Length"), ctx="Length"),
-            unit=_get_required_attr(element, "Unit"),
-            bit_inc=_as_int(_get_required_attr(element, "BitInc"), ctx="BitInc"),
-            bytes_inc=_as_int(_get_required_attr(element, "BytesInc"), ctx="BytesInc"),
-        )
-
-
-@dataclass(frozen=True)
-class ImageDescription:
+class ImageDescription(BaseModel):
     """Container for LIF image description metadata including channels and dimensions."""
 
     lif_channels: list[_LifChannel]
     lif_dimensions: list[_LifDimension]
+
+    model_config = {"frozen": True}
 
 
 class PowerState(str, Enum):
