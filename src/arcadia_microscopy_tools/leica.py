@@ -469,8 +469,18 @@ class _LeicaMetadataParser:
         )
 
     def _infer_channel(self, lif_channel: _LifChannel) -> Channel:
-        """Infer channel ..."""
+        """Infer channel from LIF metadata using laser state and detector configuration.
 
+        Channel inference is challenging due to limitations in LIF metadata structure:
+        - Fluorescence detectors (HyD) don't explicitly indicate which laser was used,
+          requiring heuristics to choose between WLL and DIODE lasers
+        - Beam route information is inconsistent across detector types and may be
+          missing or unchecked for some configurations
+        - Some detectors map to different modalities depending on laser settings
+          (e.g., F-SHG can be true SHG with CRS or pseudo-SHG/brightfield with WLL)
+        - When multiple lasers are active, detector name and beam route are used to
+          disambiguate, but this mapping is crude
+        """
         active_lasers = self.laser_system_state.active_lasers
         if not active_lasers:
             raise ValueError(f"No active laser for '{self.image_name}' in {self.lif_path}")
