@@ -558,8 +558,8 @@ class _LeicaMetadataParser:
 
             return Channel(
                 name=channel.name,
-                excitation_nm=pump_wavelength_nm,
-                emission_nm=emission_nm,
+                excitation_nm=round(pump_wavelength_nm, 1),
+                emission_nm=round(emission_nm, 1),
                 color=channel.color,
             )
 
