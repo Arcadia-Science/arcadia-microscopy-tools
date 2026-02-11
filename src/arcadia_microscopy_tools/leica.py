@@ -530,44 +530,40 @@ class _LeicaMetadataParser:
             laser_state = self.laser_system_state.get_laser_by_type(laser_type)
             return self._infer_channel_from_laser_state(laser_state)
 
-        # # Try exact match with beam route
-        # if (detector_name, beam_route) in self._CHANNEL_DETECTION_MAP:
-        #     if _CHANNEL_DETECTION_MAP[detector_name, beam_route] -> CARS:
-        #         laser_state = self.laser_system_state.get_laser_by_type(LightSourceType.CRS)
-        #         excitation_nm = laser_state.WavelengthDouble
-        #         emission_nm = calculate_antistokes_wavelength()
-        #         return Channel()
+        # Try exact match with beam route, then fall back to match without beam route
+        channel = self._CHANNEL_DETECTION_MAP.get(
+            (detector_name, beam_route)
+        ) or self._CHANNEL_DETECTION_MAP.get((detector_name, None))
 
-        #     elif SRS:
-        #         laser_state = self.laser_system_state.get_laser_by_type(LightSourceType.CRS)
-        #         excitation_nm = laser_state.WavelengthDouble
-        #         emission_nm = calculate_antistokes_wavelength()
-        #         return Channel()
+        if channel is None:
+            raise ValueError(
+                f"Could not determine channel from DetectorName: {detector_name}, "
+                f"BeamRoute: {beam_route}. Please provide channels list explicitly."
+            )
 
-        #     else:
-        #         return self._CHANNEL_DETECTION_MAP[(detector_name, None)]
+        # For CARS and SRS, calculate wavelengths from CRS laser
+        if channel in (CARS, SRS):
+            laser_state = self.laser_system_state.get_laser_by_type(LightSourceType.CRS)
+            pump_wavelength_nm = self._extract_wavelength_value(laser_state.WavelengthDouble)
 
-        # # Try match without beam route
-        # if (detector_name, None) in self._CHANNEL_DETECTION_MAP:
-        #     if _CHANNEL_DETECTION_MAP[detector_name, beam_route] -> CARS:
-        #         laser_state = self.laser_system_state.get_laser_by_type(LightSourceType.CRS)
-        #         excitation_nm = laser_state.WavelengthDouble
-        #         emission_nm = calculate_antistokes_wavelength()
-        #         return Channel()
+            if channel == CARS:
+                # CARS detects anti-Stokes wavelength
+                stokes_wavelength_nm = 1031.7  # Fixed Stokes wavelength for CRS laser
+                emission_nm = float(
+                    calculate_antistokes_wavelength(pump_wavelength_nm, stokes_wavelength_nm)
+                )
+            else:  # SRS
+                # SRS is loss-based, emission wavelength equals excitation
+                emission_nm = pump_wavelength_nm
 
-        #     elif SRS:
-        #         laser_state = self.laser_system_state.get_laser_by_type(LightSourceType.CRS)
-        #         excitation_nm = laser_state.WavelengthDouble
-        #         emission_nm = calculate_antistokes_wavelength()
-        #         return Channel()
+            return Channel(
+                name=channel.name,
+                excitation_nm=pump_wavelength_nm,
+                emission_nm=emission_nm,
+                color=channel.color,
+            )
 
-        #     else:
-        #         return self._CHANNEL_DETECTION_MAP[(detector_name, None)]
-
-        raise ValueError(
-            f"Could not determine channel from DetectorName: {detector_name}, "
-            f"BeamRoute: {beam_route}. Please provide channels list explicitly."
-        )
+        return channel
 
     def _get_dimension_flags(self) -> DimensionFlags:
         """Determine dimension flags from LIF file for a single channel.
