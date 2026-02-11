@@ -2,7 +2,7 @@ from __future__ import annotations
 import warnings
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -212,7 +212,7 @@ class _LeicaMetadataParser:
 
         resolution = self._parse_nominal_dimensions()
         measured = self._parse_measured_dimensions()
-        acquisition = self._parse_acquisition_settings(channel)
+        acquisition = self._parse_acquisition_settings()
         optics = self._parse_microscope_settings()
 
         return ChannelMetadata(
@@ -243,7 +243,7 @@ class _LeicaMetadataParser:
             return self._infer_channel_from_detector(lif_channel, active_lasers)
 
     def _infer_channel_from_laser_state(self, laser_state: LaserState) -> Channel:
-        """"""
+        """Infer channel from laser state using excitation wavelength."""
         if laser_state.LightSourceType == "CRS":
             raise ValueError("Cannot infer channel from CRS laser")
 
@@ -266,7 +266,15 @@ class _LeicaMetadataParser:
         lif_channel: _LifChannel,
         active_lasers: list[LightSourceType],
     ) -> Channel:
-        """"""
+        """Infer channel from detector name and beam route.
+
+        Args:
+            lif_channel: The LIF channel description
+            active_lasers: List of active laser types
+
+        Returns:
+            Channel inferred from detector configuration
+        """
         detector_name = lif_channel.properties.get("DetectorName")
         beam_route = lif_channel.properties.get("BeamRoute")
 
@@ -440,7 +448,7 @@ class _LeicaMetadataParser:
             w_values_nm=w_values_nm,
         )
 
-    def _parse_acquisition_settings(self, channel: Channel) -> AcquisitionSettings:
+    def _parse_acquisition_settings(self) -> AcquisitionSettings:
         """Parse acquisition settings from LIF metadata."""
 
         microscope_data = self.image.attrs.get("HardwareSetting", {}).get(
@@ -588,6 +596,7 @@ class _LifDimension:
 
     @property
     def step(self) -> float:
+        """Calculate step size for this dimension."""
         return self.length / self.number_of_elements
 
     @classmethod
@@ -616,22 +625,30 @@ class _LifDimension:
 
 @dataclass(frozen=True)
 class ImageDescription:
+    """Container for LIF image description metadata including channels and dimensions."""
+
     lif_channels: list[_LifChannel]
     lif_dimensions: list[_LifDimension]
 
 
 class PowerState(str, Enum):
+    """Laser power state enumeration."""
+
     ON = "On"
     OFF = "Off"
 
 
 class LightSourceType(int, Enum):
+    """Light source type enumeration for different laser types."""
+
     DIODE = 1
     WLL = 4
     CRS = 6
 
 
 class BeamPositionInfo(BaseModel):
+    """Beam position information from hardware settings."""
+
     BeamPositionLevel: int
     BeamPosition: int
 
@@ -639,6 +656,8 @@ class BeamPositionInfo(BaseModel):
 
 
 class BeamRoute(BaseModel):
+    """Beam routing configuration for laser optics."""
+
     BeamPosition: BeamPositionInfo | list[BeamPositionInfo]
     Version: int
 
@@ -646,6 +665,8 @@ class BeamRoute(BaseModel):
 
 
 class LaserLine(BaseModel):
+    """Individual laser line activation state."""
+
     IsLineActive: int
 
     model_config = {"frozen": True}
@@ -687,26 +708,29 @@ class LaserState(BaseModel):
 
 
 class LaserSystemState(BaseModel):
-    lasers: list[LaserState] = field(default_factory=list)
+    """Collection of laser states for the entire laser system."""
+
+    lasers: list[LaserState] = []
 
     model_config = {"frozen": True}
 
     @property
     def active_lasers(self) -> list[LightSourceType]:
+        """Property returning list of active laser types."""
         return self.get_active_lasers()
 
     def get_laser_by_type(self, laser_type: LightSourceType) -> LaserState:
-        """"""
+        """Get laser state by light source type."""
         return next(laser for laser in self.lasers if laser.LightSourceType == laser_type)
 
     def get_laser_by_name(
         self, laser_name: Literal["UV Light", "SuperContVisible Light", "CARS Light (Attenuator)"]
     ) -> LaserState:
-        """"""
+        """Get laser state by light source name."""
         return next(laser for laser in self.lasers if laser.LightSourceName == laser_name)
 
     def get_active_lasers(self) -> list[LightSourceType]:
-        """"""
+        """Get list of active laser types based on power state."""
         return [laser.LightSourceType for laser in self.lasers if laser.PowerState == PowerState.ON]
 
 
@@ -720,7 +744,7 @@ class LaserValue(BaseModel):
     Temperature: float
     Humidity: float
 
-    model_config = model_config = {"frozen": True}
+    model_config = {"frozen": True}
 
 
 class LaserValueCollection:
