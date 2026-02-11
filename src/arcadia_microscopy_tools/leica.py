@@ -56,6 +56,24 @@ def create_image_metadata_from_lif(
     return parser.parse()
 
 
+def calculate_raman_shift(
+    pump_wavelength_nm: float | Float64Array,
+    stokes_wavelength_nm: float | Float64Array = 1031.7,
+) -> float | Float64Array:
+    """Calculate Raman shift from pump and Stokes wavelengths.
+
+    Args:
+        pump_wavelength_nm: Wavelength of the pump beam in nanometers.
+            Can be a scalar or array of wavelengths.
+        stokes_wavelength_nm: Wavelength of the Stokes beam in nanometers.
+            Can be a scalar or array. Defaults to 1031.7 nm (CRS laser).
+
+    Returns:
+        Raman shift in wavenumbers (cm⁻¹). Returns array if either input is an array.
+    """
+    return (1 / pump_wavelength_nm - 1 / stokes_wavelength_nm) * 1e7
+
+
 def _get_required_attr(element: ET.Element, name: str) -> str:
     """Get a required attribute from an XML element."""
     value = element.get(name)
