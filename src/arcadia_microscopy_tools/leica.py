@@ -425,8 +425,14 @@ class _LeicaMetadataParser:
 
         w_values_nm = None
         if self.dimensions.is_spectral:
-            w_values_nm = None
-            # w_values_nm = _WavelengthExtractor(self.image, self.sizes)._try_lambda_scan_path()
+            laser_values_data = (
+                self.image.attrs.get("LaserValues", {})
+                .get("Laser", {})
+                .get("StagePosition", {})
+                .get("LaserValues", {})
+            )
+            laser_values = LaserValueCollection([LaserValue(**item) for item in laser_values_data])
+            w_values_nm = laser_values.wavelengths_nm
 
         return MeasuredDimensions(
             z_values_um=z_values_um,
@@ -702,3 +708,39 @@ class LaserSystemState(BaseModel):
     def get_active_lasers(self) -> list[LightSourceType]:
         """"""
         return [laser.LightSourceType for laser in self.lasers if laser.PowerState == PowerState.ON]
+
+
+class LaserValue(BaseModel):
+    """Represents laser parameters at a specific step."""
+
+    Step: int
+    Wavelength: float
+    Power: float
+    FixedLinePower: float
+    Temperature: float
+    Humidity: float
+
+    model_config = model_config = {"frozen": True}
+
+
+class LaserValueCollection:
+    """Wrapper for operating on multiple LaserValue objects."""
+
+    def __init__(self, laser_values: list[LaserValue]):
+        self.values = laser_values
+
+    @property
+    def wavelengths_nm(self) -> Float64Array:
+        return np.array([lv.Wavelength for lv in self.values])
+
+    @property
+    def powers_mw(self) -> Float64Array:
+        return np.array([lv.Power for lv in self.values])
+
+    @property
+    def temperatures_c(self) -> Float64Array:
+        return np.array([lv.Temperature for lv in self.values])
+
+    @property
+    def humidities_pct(self) -> Float64Array:
+        return np.array([lv.Humidity for lv in self.values])
