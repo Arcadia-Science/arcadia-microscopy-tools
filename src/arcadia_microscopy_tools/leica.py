@@ -765,7 +765,7 @@ class _LeicaMetadataParser:
 
         magnification = int(microscope_data.get("Magnification", 0))
         numerical_aperture = float(microscope_data.get("NumericalAperture", np.nan))
-        objective = microscope_data.get("ObjectiveName")
+        objective = microscope_data.get("ObjectiveName", "").strip()
 
         return MicroscopeConfig(
             magnification=magnification,
