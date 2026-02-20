@@ -618,10 +618,13 @@ class _LeicaMetadataParser:
         """Parse timestamp from LIF metadata."""
         try:
             return self._lif.images[self.image_name].timestamps[0]
-        except IndexError as ex:
-            raise ValueError(
-                f"Could not parse timestamp for image '{self.image_name}' in {self.lif_path}"
-            ) from ex
+        except IndexError:
+            warnings.warn(
+                f"Could not parse timestamp for image '{self.image_name}' in {self.lif_path}. "
+                "Let's pretend it happened during the moon landing. Image could be corrupted.",
+                stacklevel=2,
+            )
+            return datetime(1969, 7, 20, 20, 17)
 
     @property
     def _confocal_settings(self) -> dict:
