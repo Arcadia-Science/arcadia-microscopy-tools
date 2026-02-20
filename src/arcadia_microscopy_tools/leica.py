@@ -511,7 +511,7 @@ class _LeicaMetadataParser:
                 "range for Channel inference. Pass a Channel instance to prevent this warning.",
                 stacklevel=2,
             )
-            return Channel.from_excitation_wavelength(500, name=laser_state.LightSourceType.name)
+            return Channel(name=laser_state.LightSourceType.name)
 
     def _infer_channel_from_detector(
         self,
