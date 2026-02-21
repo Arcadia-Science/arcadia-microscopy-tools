@@ -32,7 +32,7 @@ _SI_UNITS: dict[str, float] = {
     "us": 1e-6,
 }
 
-_CRS_STOKES_WAVELENGTH_NM: float = 1031.7
+CRS_STOKES_WAVELENGTH_NM: float = 1031.7
 
 
 def list_image_names(lif_path: Path) -> list[str]:
@@ -70,7 +70,7 @@ def create_image_metadata_from_lif(
 
 def calculate_raman_shift(
     pump_wavelength_nm: float | Float64Array,
-    stokes_wavelength_nm: float | Float64Array = _CRS_STOKES_WAVELENGTH_NM,
+    stokes_wavelength_nm: float | Float64Array = CRS_STOKES_WAVELENGTH_NM,
 ) -> float | Float64Array:
     """Calculate Raman shift from pump and Stokes wavelengths.
 
@@ -88,7 +88,7 @@ def calculate_raman_shift(
 
 def calculate_antistokes_wavelength(
     pump_wavelength_nm: float | Float64Array,
-    stokes_wavelength_nm: float | Float64Array = _CRS_STOKES_WAVELENGTH_NM,
+    stokes_wavelength_nm: float | Float64Array = CRS_STOKES_WAVELENGTH_NM,
 ) -> float | Float64Array:
     """Calculate anti-Stokes wavelength from pump and Stokes wavelengths.
 
@@ -197,7 +197,7 @@ class _LifDimension(BaseModel):
         )
 
 
-class ImageDescription(BaseModel):
+class _ImageDescription(BaseModel):
     """Container for LIF image description metadata including channels and dimensions."""
 
     lif_channels: list[_LifChannel]
@@ -206,14 +206,14 @@ class ImageDescription(BaseModel):
     model_config = {"frozen": True}
 
 
-class PowerState(str, Enum):
+class _PowerState(str, Enum):
     """Laser power state enumeration."""
 
     ON = "On"
     OFF = "Off"
 
 
-class LightSourceType(int, Enum):
+class _LightSourceType(int, Enum):
     """Light source type enumeration for different laser types."""
 
     DIODE = 1
@@ -221,38 +221,38 @@ class LightSourceType(int, Enum):
     CRS = 6
 
 
-class LaserState(BaseModel):
+class _LaserState(BaseModel):
     """Represents the state of a single laser in the system."""
 
-    LightSourceType: LightSourceType
+    _LightSourceType: _LightSourceType
     LightSourceName: str
     WavelengthDouble: float
-    PowerState: PowerState
+    _PowerState: _PowerState
 
     model_config = {"frozen": True, "extra": "ignore"}
 
 
-class LaserSystemState:
+class _LaserSystemState:
     """Collection of laser states for the entire laser system."""
 
-    def __init__(self, lasers: list[LaserState]) -> None:
+    def __init__(self, lasers: list[_LaserState]) -> None:
         self.lasers = lasers
 
     @property
-    def active_lasers(self) -> list[LightSourceType]:
+    def active_lasers(self) -> list[_LightSourceType]:
         """List of active laser types based on power state."""
-        return [laser.LightSourceType for laser in self.lasers if laser.PowerState == PowerState.ON]
+        return [laser._LightSourceType for laser in self.lasers if laser._PowerState == _PowerState.ON]
 
-    def get_laser_by_type(self, laser_type: LightSourceType) -> LaserState:
+    def get_laser_by_type(self, laser_type: _LightSourceType) -> _LaserState:
         """Get laser state by light source type."""
-        laser = next((laser for laser in self.lasers if laser.LightSourceType == laser_type), None)
+        laser = next((laser for laser in self.lasers if laser._LightSourceType == laser_type), None)
         if laser is None:
             raise ValueError(f"No laser of type {laser_type!r} in laser system")
         return laser
 
     def get_laser_by_name(
         self, laser_name: Literal["UV Light", "SuperContVisible Light", "CARS Light (Attenuator)"]
-    ) -> LaserState:
+    ) -> _LaserState:
         """Get laser state by light source name."""
         laser = next((laser for laser in self.lasers if laser.LightSourceName == laser_name), None)
         if laser is None:
@@ -260,7 +260,7 @@ class LaserSystemState:
         return laser
 
 
-class LaserValue(BaseModel):
+class _LaserValue(BaseModel):
     """Represents laser parameters at a specific step."""
 
     Step: int
@@ -315,8 +315,8 @@ class _LeicaMetadataParser:
         self.sizes: dict[str, int]
         self.dimensions: DimensionFlags
         self.timestamp: datetime
-        self.image_description: ImageDescription
-        self.laser_system_state: LaserSystemState
+        self.image_description: _ImageDescription
+        self.laser_system_state: _LaserSystemState
 
     def parse(self) -> ImageMetadata:
         """Parse the LIF file and extract all metadata for the specified image."""
@@ -350,14 +350,14 @@ class _LeicaMetadataParser:
             )
             return ImageMetadata(self.sizes, channel_metadata_list)
 
-    def _parse_image_description(self) -> ImageDescription:
-        """Parse the ImageDescription XML element into structured data.
+    def _parse_image_description(self) -> _ImageDescription:
+        """Parse the _ImageDescription XML element into structured data.
 
         Returns:
-            ImageDescription containing channels and dimensions
+            _ImageDescription containing channels and dimensions
         """
-        # Find the ImageDescription XML element
-        image_description_element = self.image.xml_element.find("./Data/Image/ImageDescription")
+        # Find the _ImageDescription XML element
+        image_description_element = self.image.xml_element.find("./Data/Image/_ImageDescription")
         if image_description_element is None:
             raise ValueError(
                 f"Missing image description metadata for image '{self.image_name}' "
@@ -367,7 +367,7 @@ class _LeicaMetadataParser:
         channels_element = image_description_element.find("Channels")
         dimensions_element = image_description_element.find("Dimensions")
         if channels_element is None or dimensions_element is None:
-            raise ValueError("Expected <Channels> and <Dimensions> under <ImageDescription>")
+            raise ValueError("Expected <Channels> and <Dimensions> under <_ImageDescription>")
 
         lif_channels = [
             _LifChannel.from_xml(e) for e in channels_element.findall("ChannelDescription")
@@ -376,9 +376,9 @@ class _LeicaMetadataParser:
             _LifDimension.from_xml(e) for e in dimensions_element.findall("DimensionDescription")
         ]
 
-        return ImageDescription(lif_channels=lif_channels, lif_dimensions=lif_dimensions)
+        return _ImageDescription(lif_channels=lif_channels, lif_dimensions=lif_dimensions)
 
-    def _parse_laser_array_data(self) -> LaserSystemState:
+    def _parse_laser_array_data(self) -> _LaserSystemState:
         """Parse laser system states from hardware settings."""
 
         laser_array_data = (
@@ -390,8 +390,8 @@ class _LeicaMetadataParser:
         # Normalize to list: XML parsers may return a dict when there is only one element
         if isinstance(laser_array_data, dict):
             laser_array_data = [laser_array_data]
-        return LaserSystemState(
-            lasers=[LaserState(**laser_data) for laser_data in laser_array_data]
+        return _LaserSystemState(
+            lasers=[_LaserState(**laser_data) for laser_data in laser_array_data]
         )
 
     def _parse_all_channels(
@@ -462,24 +462,24 @@ class _LeicaMetadataParser:
             raise ValueError(f"No active laser for '{self.image_name}' in {self.lif_path}")
 
         if len(active_lasers) == 1 and active_lasers[0] in (
-            LightSourceType.DIODE,
-            LightSourceType.WLL,
+            _LightSourceType.DIODE,
+            _LightSourceType.WLL,
         ):
             active_laser_state = self.laser_system_state.get_laser_by_type(active_lasers[0])
             return self._infer_channel_from_laser_state(active_laser_state)
 
         return self._infer_channel_from_detector(lif_channel, active_lasers)
 
-    def _infer_channel_from_laser_state(self, laser_state: LaserState) -> Channel:
+    def _infer_channel_from_laser_state(self, laser_state: _LaserState) -> Channel:
         """Infer channel from laser state using excitation wavelength."""
-        if laser_state.LightSourceType == LightSourceType.CRS:
+        if laser_state._LightSourceType == _LightSourceType.CRS:
             raise ValueError("Cannot infer channel from CRS laser")
 
         # Can reasonably infer channel only in the case where either the UV or WLL laser is ON
         excitation_wavelength_nm = self._extract_wavelength_value(laser_state.WavelengthDouble)
         try:
             return Channel.from_excitation_wavelength(
-                excitation_wavelength_nm, name=laser_state.LightSourceType.name
+                excitation_wavelength_nm, name=laser_state._LightSourceType.name
             )
         except ValueError:
             warnings.warn(
@@ -487,12 +487,12 @@ class _LeicaMetadataParser:
                 "range for Channel inference. Pass a Channel instance to prevent this warning.",
                 stacklevel=2,
             )
-            return Channel(name=laser_state.LightSourceType.name)
+            return Channel(name=laser_state._LightSourceType.name)
 
     def _infer_channel_from_detector(
         self,
         lif_channel: _LifChannel,
-        active_lasers: list[LightSourceType],
+        active_lasers: list[_LightSourceType],
     ) -> Channel:
         """Infer channel from detector name and beam route.
 
@@ -509,9 +509,9 @@ class _LeicaMetadataParser:
         if detector_name in self._FLUORESCENCE_DETECTORS:
             # TODO: this is a crude assumption for WLL over DIODE
             laser_type = (
-                LightSourceType.WLL
-                if LightSourceType.WLL in active_lasers
-                else LightSourceType.DIODE
+                _LightSourceType.WLL
+                if _LightSourceType.WLL in active_lasers
+                else _LightSourceType.DIODE
             )
             laser_state = self.laser_system_state.get_laser_by_type(laser_type)
             return self._infer_channel_from_laser_state(laser_state)
@@ -529,13 +529,13 @@ class _LeicaMetadataParser:
 
         # For CARS and SRS, calculate wavelengths from CRS laser
         if channel in (CARS, SRS):
-            laser_state = self.laser_system_state.get_laser_by_type(LightSourceType.CRS)
+            laser_state = self.laser_system_state.get_laser_by_type(_LightSourceType.CRS)
             pump_wavelength_nm = self._extract_wavelength_value(laser_state.WavelengthDouble)
 
             if channel == CARS:
                 # CARS detects anti-Stokes wavelength
                 emission_nm = float(
-                    calculate_antistokes_wavelength(pump_wavelength_nm, _CRS_STOKES_WAVELENGTH_NM)
+                    calculate_antistokes_wavelength(pump_wavelength_nm, CRS_STOKES_WAVELENGTH_NM)
                 )
             else:  # SRS
                 # SRS is loss-based, emission wavelength equals excitation
@@ -693,15 +693,15 @@ class _LeicaMetadataParser:
         w_values_nm = None
         if self.dimensions.is_spectral:
             laser_values_data = (
-                self.image.attrs.get("LaserValues", {})
+                self.image.attrs.get("_LaserValues", {})
                 .get("Laser", {})
                 .get("StagePosition", {})
-                .get("LaserValues", {})
+                .get("_LaserValues", {})
             )
             # Normalize to list: XML parsers may return a dict when there is only one element
             if isinstance(laser_values_data, dict):
                 laser_values_data = [laser_values_data]
-            w_values_nm = np.array([LaserValue(**item).Wavelength for item in laser_values_data])
+            w_values_nm = np.array([_LaserValue(**item).Wavelength for item in laser_values_data])
 
         return MeasuredDimensions(
             z_values_um=z_values_um,
