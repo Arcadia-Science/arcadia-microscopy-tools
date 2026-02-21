@@ -22,6 +22,16 @@ from .metadata_structures import (
 from .microscopy import ImageMetadata
 from .typing import Float64Array
 
+_SI_UNITS: dict[str, float] = {
+    "m": 1,
+    "mm": 1e-3,
+    "um": 1e-6,
+    "nm": 1e-9,
+    "s": 1,
+    "ms": 1e-3,
+    "us": 1e-6,
+}
+
 
 def list_image_names(lif_path: Path) -> list[str]:
     """List all image names contained in a LIF file.
@@ -90,6 +100,10 @@ def calculate_antistokes_wavelength(
         Anti-Stokes wavelength in nanometers. Returns array if either input is an array.
     """
     return 1 / (2 / pump_wavelength_nm - 1 / stokes_wavelength_nm)
+
+
+def _convert_units(value: float, from_unit: str, to_unit: str) -> float:
+    return value * _SI_UNITS[from_unit] / _SI_UNITS[to_unit]
 
 
 def _get_required_attr(element: ET.Element, name: str) -> str:
@@ -648,21 +662,21 @@ class _LeicaMetadataParser:
         # X and Y dimensions
         x_dim = self._find_dimension(1)
         y_dim = self._find_dimension(2)
-        xy_step_um = 1e6 * (x_dim.step + y_dim.step) / 2
+        xy_step_um = _convert_units((x_dim.step + y_dim.step) / 2, x_dim.unit, "um")
 
         # Optional Z dimension
         z_size_px, z_step_um = None, None
         if self.dimensions.is_zstack:
             z_dim = self._find_dimension(3)
             z_size_px = z_dim.number_of_elements
-            z_step_um = 1e6 * z_dim.step
+            z_step_um = _convert_units(z_dim.step, z_dim.unit, "um")
 
         # Optional T dimension
         t_size_px, t_step_ms = None, None
         if self.dimensions.is_timelapse:
             t_dim = self._find_dimension(4)
             t_size_px = t_dim.number_of_elements
-            t_step_ms = 1e3 * t_dim.step
+            t_step_ms = _convert_units(t_dim.step, t_dim.unit, "ms")
 
         # Optional wavelength dimension (try Λ then λ)
         w_size_px, w_step_nm = None, None
@@ -671,7 +685,7 @@ class _LeicaMetadataParser:
                 if size_key in self.sizes and self.sizes[size_key] > 1:
                     w_dim = self._find_dimension(dim_id)
                     w_size_px = w_dim.number_of_elements
-                    w_step_nm = 1e9 * w_dim.step
+                    w_step_nm = _convert_units(w_dim.step, w_dim.unit, "nm")
                     break
 
         return NominalDimensions(
@@ -708,11 +722,15 @@ class _LeicaMetadataParser:
 
         z_values_um = None
         if self.dimensions.is_zstack:
-            z_values_um = self.image.coords["Z"]
+            z_dim = self._find_dimension(3)
+            a = _convert_units(1, z_dim.unit, "um")
+            z_values_um = a * self.image.coords["Z"]
 
         t_values_ms = None
         if self.dimensions.is_timelapse:
-            t_values_ms = self.image.coords["T"]
+            t_dim = self._find_dimension(4)
+            a = _convert_units(1, t_dim.unit, "ms")
+            t_values_ms = a * self.image.coords["T"]
 
         w_values_nm = None
         if self.dimensions.is_spectral:
