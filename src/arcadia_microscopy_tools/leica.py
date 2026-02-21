@@ -221,65 +221,15 @@ class LightSourceType(int, Enum):
     CRS = 6
 
 
-class BeamPositionInfo(BaseModel):
-    """Beam position information from hardware settings."""
-
-    BeamPositionLevel: int
-    BeamPosition: int
-
-    model_config = {"frozen": True}
-
-
-class BeamRoute(BaseModel):
-    """Beam routing configuration for laser optics."""
-
-    BeamPosition: BeamPositionInfo | list[BeamPositionInfo]
-    Version: int
-
-    model_config = {"frozen": True}
-
-
-class LaserLine(BaseModel):
-    """Individual laser line activation state."""
-
-    IsLineActive: int
-
-    model_config = {"frozen": True}
-
-
 class LaserState(BaseModel):
     """Represents the state of a single laser in the system."""
 
-    # Required fields
-    BeamRoute: BeamRoute
-    Version: int
     LightSourceType: LightSourceType
-    LaserName: str
-    StedAlignFlag: int
-    CanDoLinearOutputPower: int
-    CanDoPulsing: int
-    CanDoOutputPowerWatt: int
-    HighPowerModeActive: int
     LightSourceName: str
-    OutputPowerWatt: float
-    Wavelength: float
     WavelengthDouble: float
     PowerState: PowerState
-    CanDoChangeWavelength: int
 
-    # Optional fields (only present in some lasers)
-    OutputPowerPercentage: float | None = None
-    LaserLines: list[LaserLine] | None = None
-    ShutterState: int | None = None
-    ConstantPowerMode: int | None = None
-    TargetOutputPower: float | None = None
-    TuningRangeMin: float | None = None
-    TuningRangeMax: float | None = None
-    PumpOutputPowerPercent: float | None = None
-    PumpOutputPower: float | None = None
-    PumpWavelength: float | None = None
-
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "extra": "ignore"}
 
 
 class LaserSystemState:
@@ -323,38 +273,21 @@ class LaserValue(BaseModel):
     model_config = {"frozen": True}
 
 
-class LaserValueCollection:
-    """Wrapper for operating on multiple LaserValue objects."""
-
-    def __init__(self, laser_values: list[LaserValue]):
-        self.values = laser_values
-
-    @property
-    def wavelengths_nm(self) -> Float64Array:
-        """Array of wavelengths in nanometers."""
-        return np.array([lv.Wavelength for lv in self.values])
-
-    @property
-    def powers_mw(self) -> Float64Array:
-        """Array of laser powers in milliwatts."""
-        return np.array([lv.Power for lv in self.values])
-
-    @property
-    def temperatures_c(self) -> Float64Array:
-        """Array of temperatures in Celsius."""
-        return np.array([lv.Temperature for lv in self.values])
-
-    @property
-    def humidities_pct(self) -> Float64Array:
-        """Array of humidity percentages."""
-        return np.array([lv.Humidity for lv in self.values])
-
-
 class _LeicaMetadataParser:
     """Parser for extracting metadata from Leica LIF files."""
 
     # Set of detectors used for either the UV (405 nm) or WLL laser
     _FLUORESCENCE_DETECTORS = {"HyD S 1", "HyD S 2", "HyD X 3", "HyD R 4"}
+
+    # Map of LIF dimension key → DimensionFlag for _get_dimension_flags
+    _DIM_FLAG_MAP: dict[str, DimensionFlags] = {
+        "T": DimensionFlags.TIMELAPSE,
+        "Z": DimensionFlags.Z_STACK,
+        "S": DimensionFlags.RGB,
+        "λ": DimensionFlags.SPECTRAL,
+        "Λ": DimensionFlags.SPECTRAL,
+        "M": DimensionFlags.MONTAGE,
+    }
 
     # Map of (detector_name, beam_route) to Channel for automatic channel detection
     _CHANNEL_DETECTION_MAP = {
@@ -436,24 +369,14 @@ class _LeicaMetadataParser:
         if channels_element is None or dimensions_element is None:
             raise ValueError("Expected <Channels> and <Dimensions> under <ImageDescription>")
 
-        lif_channels = self._parse_channels_from_xml(channels_element)
-        lif_dimensions = self._parse_dimensions_from_xml(dimensions_element)
+        lif_channels = [
+            _LifChannel.from_xml(e) for e in channels_element.findall("ChannelDescription")
+        ]
+        lif_dimensions = [
+            _LifDimension.from_xml(e) for e in dimensions_element.findall("DimensionDescription")
+        ]
 
         return ImageDescription(lif_channels=lif_channels, lif_dimensions=lif_dimensions)
-
-    def _parse_channels_from_xml(self, channels_element: ET.Element) -> list[_LifChannel]:
-        """Parse channel descriptions from the <Channels> XML element."""
-        return [
-            _LifChannel.from_xml(element)
-            for element in channels_element.findall("ChannelDescription")
-        ]
-
-    def _parse_dimensions_from_xml(self, dimensions_element: ET.Element) -> list[_LifDimension]:
-        """Parse dimension descriptions from the <Dimensions> XML element."""
-        return [
-            _LifDimension.from_xml(element)
-            for element in dimensions_element.findall("DimensionDescription")
-        ]
 
     def _parse_laser_array_data(self) -> LaserSystemState:
         """Parse laser system states from hardware settings."""
@@ -649,22 +572,11 @@ class _LeicaMetadataParser:
         See also:
             - https://github.com/cgohlke/liffile/blob/main/liffile/liffile.py#L869
         """
-        dimensions = DimensionFlags(0)
-
-        if "T" in self.sizes and self.sizes["T"] > 1:
-            dimensions |= DimensionFlags.TIMELAPSE
-        if "Z" in self.sizes and self.sizes["Z"] > 1:
-            dimensions |= DimensionFlags.Z_STACK
-        if "S" in self.sizes and self.sizes["S"] > 1:
-            dimensions |= DimensionFlags.RGB
-        if "λ" in self.sizes and self.sizes["λ"] > 1:
-            dimensions |= DimensionFlags.SPECTRAL
-        if "Λ" in self.sizes and self.sizes["Λ"] > 1:
-            dimensions |= DimensionFlags.SPECTRAL
-        if "M" in self.sizes and self.sizes["M"] > 1:
-            dimensions |= DimensionFlags.MONTAGE
-
-        return dimensions
+        result = DimensionFlags(0)
+        for key, flag in self._DIM_FLAG_MAP.items():
+            if self.sizes.get(key, 0) > 1:
+                result |= flag
+        return result
 
     def _parse_timestamp(self) -> datetime:
         """Parse timestamp from LIF metadata."""
@@ -769,14 +681,14 @@ class _LeicaMetadataParser:
         z_values_um = None
         if self.dimensions.is_zstack:
             z_dim = self._find_dimension(3)
-            a = _convert_units(1, z_dim.unit, "um")
-            z_values_um = a * self.image.coords["Z"]
+            to_um = _convert_units(1, z_dim.unit, "um")
+            z_values_um = to_um * self.image.coords["Z"]
 
         t_values_ms = None
         if self.dimensions.is_timelapse:
             t_dim = self._find_dimension(4)
-            a = _convert_units(1, t_dim.unit, "ms")
-            t_values_ms = a * self.image.coords["T"]
+            to_ms = _convert_units(1, t_dim.unit, "ms")
+            t_values_ms = to_ms * self.image.coords["T"]
 
         w_values_nm = None
         if self.dimensions.is_spectral:
@@ -789,8 +701,7 @@ class _LeicaMetadataParser:
             # Normalize to list: XML parsers may return a dict when there is only one element
             if isinstance(laser_values_data, dict):
                 laser_values_data = [laser_values_data]
-            laser_values = LaserValueCollection([LaserValue(**item) for item in laser_values_data])
-            w_values_nm = laser_values.wavelengths_nm
+            w_values_nm = np.array([LaserValue(**item).Wavelength for item in laser_values_data])
 
         return MeasuredDimensions(
             z_values_um=z_values_um,
