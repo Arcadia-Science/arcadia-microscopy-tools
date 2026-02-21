@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import liffile
 import numpy as np
@@ -31,6 +31,8 @@ _SI_UNITS: dict[str, float] = {
     "ms": 1e-3,
     "us": 1e-6,
 }
+
+_CRS_STOKES_WAVELENGTH_NM: float = 1031.7
 
 
 def list_image_names(lif_path: Path) -> list[str]:
@@ -68,7 +70,7 @@ def create_image_metadata_from_lif(
 
 def calculate_raman_shift(
     pump_wavelength_nm: float | Float64Array,
-    stokes_wavelength_nm: float | Float64Array = 1031.7,
+    stokes_wavelength_nm: float | Float64Array = _CRS_STOKES_WAVELENGTH_NM,
 ) -> float | Float64Array:
     """Calculate Raman shift from pump and Stokes wavelengths.
 
@@ -86,7 +88,7 @@ def calculate_raman_shift(
 
 def calculate_antistokes_wavelength(
     pump_wavelength_nm: float | Float64Array,
-    stokes_wavelength_nm: float | Float64Array = 1031.7,
+    stokes_wavelength_nm: float | Float64Array = _CRS_STOKES_WAVELENGTH_NM,
 ) -> float | Float64Array:
     """Calculate anti-Stokes wavelength from pump and Stokes wavelengths.
 
@@ -103,6 +105,10 @@ def calculate_antistokes_wavelength(
 
 
 def _convert_units(value: float, from_unit: str, to_unit: str) -> float:
+    if from_unit not in _SI_UNITS:
+        raise ValueError(f"Unknown unit {from_unit!r}")
+    if to_unit not in _SI_UNITS:
+        raise ValueError(f"Unknown unit {to_unit!r}")
     return value * _SI_UNITS[from_unit] / _SI_UNITS[to_unit]
 
 
@@ -289,13 +295,19 @@ class LaserSystemState:
 
     def get_laser_by_type(self, laser_type: LightSourceType) -> LaserState:
         """Get laser state by light source type."""
-        return next(laser for laser in self.lasers if laser.LightSourceType == laser_type)
+        laser = next((laser for laser in self.lasers if laser.LightSourceType == laser_type), None)
+        if laser is None:
+            raise ValueError(f"No laser of type {laser_type!r} in laser system")
+        return laser
 
     def get_laser_by_name(
         self, laser_name: Literal["UV Light", "SuperContVisible Light", "CARS Light (Attenuator)"]
     ) -> LaserState:
         """Get laser state by light source name."""
-        return next(laser for laser in self.lasers if laser.LightSourceName == laser_name)
+        laser = next((laser for laser in self.lasers if laser.LightSourceName == laser_name), None)
+        if laser is None:
+            raise ValueError(f"No laser named {laser_name!r} in laser system")
+        return laser
 
 
 class LaserValue(BaseModel):
@@ -364,7 +376,14 @@ class _LeicaMetadataParser:
         self.lif_path = lif_path
         self.image_name = image_name
         self.channels = channels
+        # Attributes populated during parse()
         self._lif: liffile.LifFile
+        self.image: Any
+        self.sizes: dict[str, int]
+        self.dimensions: DimensionFlags
+        self.timestamp: datetime
+        self.image_description: ImageDescription
+        self.laser_system_state: LaserSystemState
 
     def parse(self) -> ImageMetadata:
         """Parse the LIF file and extract all metadata for the specified image."""
@@ -387,7 +406,15 @@ class _LeicaMetadataParser:
             # Parse laser system state
             self.laser_system_state = self._parse_laser_array_data()
 
-            channel_metadata_list = self._parse_all_channels()
+            # Parse image-level metadata once, shared across all channels
+            resolution = self._parse_nominal_dimensions()
+            measured = self._parse_measured_dimensions()
+            acquisition = self._parse_acquisition_settings()
+            optics = self._parse_microscope_settings()
+
+            channel_metadata_list = self._parse_all_channels(
+                resolution, measured, acquisition, optics
+            )
             return ImageMetadata(self.sizes, channel_metadata_list)
 
     def _parse_image_description(self) -> ImageDescription:
@@ -437,11 +464,20 @@ class _LeicaMetadataParser:
             .get("LaserArray", {})
             .get("Laser", {})
         )
+        # Normalize to list: XML parsers may return a dict when there is only one element
+        if isinstance(laser_array_data, dict):
+            laser_array_data = [laser_array_data]
         return LaserSystemState(
             lasers=[LaserState(**laser_data) for laser_data in laser_array_data]
         )
 
-    def _parse_all_channels(self) -> list[ChannelMetadata]:
+    def _parse_all_channels(
+        self,
+        resolution: NominalDimensions,
+        measured: MeasuredDimensions,
+        acquisition: AcquisitionSettings,
+        optics: MicroscopeConfig,
+    ) -> list[ChannelMetadata]:
         """Parse metadata for all channels in the LIF image."""
         # Validate channels list length if provided
         num_channels = len(self.image_description.lif_channels)
@@ -454,6 +490,10 @@ class _LeicaMetadataParser:
             self._parse_channel_metadata(
                 lif_channel,
                 self.channels[i] if self.channels else None,
+                resolution,
+                measured,
+                acquisition,
+                optics,
             )
             for i, lif_channel in enumerate(self.image_description.lif_channels)
         ]
@@ -461,16 +501,15 @@ class _LeicaMetadataParser:
     def _parse_channel_metadata(
         self,
         lif_channel: _LifChannel,
-        channel: Channel | None = None,
+        channel: Channel | None,
+        resolution: NominalDimensions,
+        measured: MeasuredDimensions,
+        acquisition: AcquisitionSettings,
+        optics: MicroscopeConfig,
     ) -> ChannelMetadata:
         """Parse metadata for a specific channel."""
         if channel is None:
             channel = self._infer_channel(lif_channel)
-
-        resolution = self._parse_nominal_dimensions()
-        measured = self._parse_measured_dimensions()
-        acquisition = self._parse_acquisition_settings()
-        optics = self._parse_microscope_settings()
 
         return ChannelMetadata(
             channel=channel,
@@ -572,9 +611,8 @@ class _LeicaMetadataParser:
 
             if channel == CARS:
                 # CARS detects anti-Stokes wavelength
-                stokes_wavelength_nm = 1031.7  # Fixed Stokes wavelength for CRS laser
                 emission_nm = float(
-                    calculate_antistokes_wavelength(pump_wavelength_nm, stokes_wavelength_nm)
+                    calculate_antistokes_wavelength(pump_wavelength_nm, _CRS_STOKES_WAVELENGTH_NM)
                 )
             else:  # SRS
                 # SRS is loss-based, emission wavelength equals excitation
@@ -662,7 +700,15 @@ class _LeicaMetadataParser:
         # X and Y dimensions
         x_dim = self._find_dimension(1)
         y_dim = self._find_dimension(2)
-        xy_step_um = _convert_units((x_dim.step + y_dim.step) / 2, x_dim.unit, "um")
+        x_step_um = _convert_units(x_dim.step, x_dim.unit, "um")
+        y_step_um = _convert_units(y_dim.step, y_dim.unit, "um")
+        if abs(x_step_um - y_step_um) / x_step_um > 0.01:
+            warnings.warn(
+                f"X ({x_step_um:.4f} µm) and Y ({y_step_um:.4f} µm) pixel steps differ by more "
+                "than 1%; using average for xy_step_um.",
+                stacklevel=2,
+            )
+        xy_step_um = (x_step_um + y_step_um) / 2
 
         # Optional Z dimension
         z_size_px, z_step_um = None, None
@@ -740,6 +786,9 @@ class _LeicaMetadataParser:
                 .get("StagePosition", {})
                 .get("LaserValues", {})
             )
+            # Normalize to list: XML parsers may return a dict when there is only one element
+            if isinstance(laser_values_data, dict):
+                laser_values_data = [laser_values_data]
             laser_values = LaserValueCollection([LaserValue(**item) for item in laser_values_data])
             w_values_nm = laser_values.wavelengths_nm
 
@@ -764,9 +813,17 @@ class _LeicaMetadataParser:
         # Convert pixel dwell time from seconds to microseconds
         pixel_dwell_time_us = 1e6 * pixel_dwell_time_s
 
-        # Calculate exposure time from per-pixel dwell time and spatial dimensions
-        # Total time in seconds: pixel_dwell_time_s * X * Y, then convert to milliseconds
-        exposure_time_ms = pixel_dwell_time_s * self.sizes["X"] * self.sizes["Y"] * 1e3
+        # Calculate total exposure time, accounting for all averaging and accumulation passes
+        exposure_time_ms = (
+            pixel_dwell_time_s
+            * self.sizes["X"]
+            * self.sizes["Y"]
+            * line_averaging
+            * line_accumulation
+            * frame_averaging
+            * frame_accumulation
+            * 1e3
+        )
 
         return AcquisitionSettings(
             exposure_time_ms=exposure_time_ms,
@@ -811,7 +868,7 @@ class _LeicaMetadataParser:
         """
         try:
             wavelength = float(value)
-            # Convert to nm if it looks like it's in meters (< 1)
-            return wavelength * 1e9 if wavelength < 1 else wavelength
+            # Convert to nm if it looks like it's in meters (< 1e-3, i.e. sub-millimeter)
+            return wavelength * 1e9 if wavelength < 1e-3 else wavelength
         except (ValueError, TypeError) as ex:
             raise ValueError(f"Cannot determine wavelength from {value}") from ex
