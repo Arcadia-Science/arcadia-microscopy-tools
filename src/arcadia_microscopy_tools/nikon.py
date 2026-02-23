@@ -16,15 +16,15 @@ from .metadata_structures import (
     MicroscopeConfig,
     NominalDimensions,
 )
-from .microscopy import ImageMetadata
+from .microscopy import InstrumentMetadata
 from .typing import Float64Array
 
 
-def create_image_metadata_from_nd2(
+def create_instrument_metadata_from_nd2(
     nd2_path: Path,
     channels: list[Channel] | None = None,
-) -> ImageMetadata:
-    """Create ImageMetadata from a Nikon ND2 file.
+) -> InstrumentMetadata:
+    """Create InstrumentMetadata from a Nikon ND2 file.
 
     Args:
         nd2_path: Path to the Nikon ND2 file.
@@ -32,7 +32,7 @@ def create_image_metadata_from_nd2(
             If not provided, channels are inferred from the ND2 file's optical configuration.
 
     Returns:
-        ImageMetadata with sizes and channel metadata for all channels.
+        InstrumentMetadata with sizes and channel metadata for all channels.
     """
     parser = _NikonMetadataParser(nd2_path, channels)
     return parser.parse()
@@ -46,7 +46,7 @@ class _NikonMetadataParser:
         self.channels = channels
         self._nd2f: nd2.ND2File
 
-    def parse(self) -> ImageMetadata:
+    def parse(self) -> InstrumentMetadata:
         """Parse the ND2 file and extract all metadata."""
         with nd2.ND2File(self.nd2_path) as self._nd2f:
             self.sizes = dict(self._nd2f.sizes)
@@ -57,7 +57,7 @@ class _NikonMetadataParser:
 
             channel_metadata_list = self._parse_all_channels()
 
-        return ImageMetadata(self.sizes, channel_metadata_list)
+        return InstrumentMetadata(self.sizes, channel_metadata_list)
 
     def _parse_all_channels(self) -> list[ChannelMetadata]:
         """Parse metadata for all channels in the ND2 file."""

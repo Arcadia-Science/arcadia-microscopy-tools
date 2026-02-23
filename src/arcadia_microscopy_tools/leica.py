@@ -19,7 +19,7 @@ from .metadata_structures import (
     MicroscopeConfig,
     NominalDimensions,
 )
-from .microscopy import ImageMetadata
+from .microscopy import InstrumentMetadata
 from .typing import Float64Array
 
 _SI_UNITS: dict[str, float] = {
@@ -48,12 +48,12 @@ def list_image_names(lif_path: Path) -> list[str]:
         return [image.name for image in f.images]
 
 
-def create_image_metadata_from_lif(
+def create_instrument_metadata_from_lif(
     lif_path: Path,
     image_name: str,
     channels: list[Channel] | None = None,
-) -> ImageMetadata:
-    """Create ImageMetadata from a Leica LIF file.
+) -> InstrumentMetadata:
+    """Create InstrumentMetadata from a Leica LIF file.
 
     Args:
         lif_path: Path to the Leica LIF file.
@@ -62,7 +62,7 @@ def create_image_metadata_from_lif(
             If not provided, channels are inferred from the LIF file metadata.
 
     Returns:
-        ImageMetadata with sizes and channel metadata for all channels.
+        InstrumentMetadata with sizes and channel metadata for all channels.
     """
     parser = _LeicaMetadataParser(lif_path, image_name, channels)
     return parser.parse()
@@ -320,7 +320,7 @@ class _LeicaMetadataParser:
         self.image_description: _ImageDescription
         self.laser_system_state: _LaserSystemState
 
-    def parse(self) -> ImageMetadata:
+    def parse(self) -> InstrumentMetadata:
         """Parse the LIF file and extract all metadata for the specified image."""
         with liffile.LifFile(self.lif_path) as self._lif:
             self.image = self._lif.images[self.image_name]
@@ -350,7 +350,7 @@ class _LeicaMetadataParser:
             channel_metadata_list = self.parse_all_channels(
                 resolution, measured, acquisition, optics
             )
-            return ImageMetadata(self.sizes, channel_metadata_list)
+            return InstrumentMetadata(self.sizes, channel_metadata_list)
 
     def parse_image_description(self) -> _ImageDescription:
         """Parse the ImageDescription XML element into structured data.
