@@ -224,10 +224,10 @@ class _LightSourceType(int, Enum):
 class _LaserState(BaseModel):
     """Represents the state of a single laser in the system."""
 
-    _LightSourceType: _LightSourceType
+    LightSourceType: _LightSourceType
     LightSourceName: str
     WavelengthDouble: float
-    _PowerState: _PowerState
+    PowerState: _PowerState
 
     model_config = {"frozen": True, "extra": "ignore"}
 
@@ -242,12 +242,12 @@ class _LaserSystemState:
     def active_lasers(self) -> list[_LightSourceType]:
         """List of active laser types based on power state."""
         return [
-            laser._LightSourceType for laser in self.lasers if laser._PowerState == _PowerState.ON
+            laser.LightSourceType for laser in self.lasers if laser.PowerState == _PowerState.ON
         ]
 
     def get_laser_by_type(self, laser_type: _LightSourceType) -> _LaserState:
         """Get laser state by light source type."""
-        laser = next((laser for laser in self.lasers if laser._LightSourceType == laser_type), None)
+        laser = next((laser for laser in self.lasers if laser.LightSourceType == laser_type), None)
         if laser is None:
             raise ValueError(f"No laser of type {laser_type!r} in laser system")
         return laser
@@ -353,13 +353,13 @@ class _LeicaMetadataParser:
             return ImageMetadata(self.sizes, channel_metadata_list)
 
     def parse_image_description(self) -> _ImageDescription:
-        """Parse the _ImageDescription XML element into structured data.
+        """Parse the ImageDescription XML element into structured data.
 
         Returns:
-            _ImageDescription containing channels and dimensions
+            ImageDescription containing channels and dimensions
         """
-        # Find the _ImageDescription XML element
-        image_description_element = self.image.xml_element.find("./Data/Image/_ImageDescription")
+        # Find the ImageDescription XML element
+        image_description_element = self.image.xml_element.find("./Data/Image/ImageDescription")
         if image_description_element is None:
             raise ValueError(
                 f"Missing image description metadata for image '{self.image_name}' "
@@ -369,7 +369,7 @@ class _LeicaMetadataParser:
         channels_element = image_description_element.find("Channels")
         dimensions_element = image_description_element.find("Dimensions")
         if channels_element is None or dimensions_element is None:
-            raise ValueError("Expected <Channels> and <Dimensions> under <_ImageDescription>")
+            raise ValueError("Expected <Channels> and <Dimensions> under <ImageDescription>")
 
         lif_channels = [
             _LifChannel.from_xml(e) for e in channels_element.findall("ChannelDescription")
@@ -474,14 +474,14 @@ class _LeicaMetadataParser:
 
     def infer_channel_from_laser_state(self, laser_state: _LaserState) -> Channel:
         """Infer channel from laser state using excitation wavelength."""
-        if laser_state._LightSourceType == _LightSourceType.CRS:
+        if laser_state.LightSourceType == _LightSourceType.CRS:
             raise ValueError("Cannot infer channel from CRS laser")
 
         # Can reasonably infer channel only in the case where either the UV or WLL laser is ON
         excitation_wavelength_nm = self.extract_wavelength_value(laser_state.WavelengthDouble)
         try:
             return Channel.from_excitation_wavelength(
-                excitation_wavelength_nm, name=laser_state._LightSourceType.name
+                excitation_wavelength_nm, name=laser_state.LightSourceType.name
             )
         except ValueError:
             warnings.warn(
@@ -489,7 +489,7 @@ class _LeicaMetadataParser:
                 "range for Channel inference. Pass a Channel instance to prevent this warning.",
                 stacklevel=2,
             )
-            return Channel(name=laser_state._LightSourceType.name)
+            return Channel(name=laser_state.LightSourceType.name)
 
     def infer_channel_from_detector(
         self,
