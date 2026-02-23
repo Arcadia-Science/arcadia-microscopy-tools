@@ -704,9 +704,28 @@ class _LeicaMetadataParser:
     def parse_measured_dimensions(self) -> MeasuredDimensions:
         """Parse measured dimension values from LIF metadata.
 
-        Coords are created in liffile.py from properties in LifDimension, hence they are not
-        truly measured. Idk the real source of measured coordinates (or if there is one) for
-        Z and T dimensions.
+        Spatial dimensions (X, Y, Z from montage tile positions; Z and T from liffile coords)
+        are derived from LifDimension properties rather than truly independent measurements.
+
+        Spectral (Lambda scan) wavelengths are parsed via two different paths depending on
+        acquisition type:
+
+        - Standard Lambda scan (non-montage, non-merged): per-step wavelengths are read from
+          the ``LaserValues`` attribute, which records the actual laser position at each step.
+
+        - Navigator Lambda scan (montage or merged): the ``LaserValues`` attribute is absent
+          or unreliable for tile-based acquisitions. Instead, wavelengths are reconstructed
+          from the ``LambdaDefinition`` in ``ATLConfocalSettingDefinition`` using the nominal
+          start, end, and step count. Navigator auto-exports a stitched version of each
+          montage appended with ``_Merged``; this image loses the ``MONTAGE`` dimension flag
+          after stitching but retains the Navigator spectral metadata structure, so it is
+          handled identically to the unstitched montage.
+
+        Limitations:
+        - Z and T coords are computed from LifDimension properties (origin + step), not
+          from independently logged stage positions, so they may not reflect actual motion.
+        - If both ``is_montage`` and ``is_zstack`` are set, tile Z positions are overwritten
+          by Z-stack coordinates (intentional: Z-stack positions are more precise).
 
         See also:
             - https://github.com/cgohlke/liffile/blob/main/liffile/liffile.py#L1298
@@ -734,6 +753,7 @@ class _LeicaMetadataParser:
             z_values_um -= z_values_um.mean()
 
         if self.dimensions.is_zstack:
+            # Z-stack coordinates take priority over montage tile Z positions
             z_dim = self.find_dimension(3)
             to_um = _convert_units(1, z_dim.unit, "um")
             z_values_um = to_um * self.image.coords["Z"]
