@@ -275,6 +275,18 @@ class _LaserValue(BaseModel):
     model_config = {"frozen": True}
 
 
+class _TileInfo(BaseModel):
+    """Represents stage position data at a specific step in a Navigator acquisition."""
+
+    FieldX: int
+    FieldY: int
+    PosX: float
+    PosY: float
+    PosZ: float
+
+    model_config = {"frozen": True}
+
+
 class _LeicaMetadataParser:
     """Parser for extracting metadata from Leica LIF files."""
 
@@ -700,7 +712,22 @@ class _LeicaMetadataParser:
             - https://github.com/cgohlke/liffile/blob/main/liffile/liffile.py#L1298
         """
 
+        x_values_um = None
+        y_values_um = None
         z_values_um = None
+        if self.dimensions.is_montage:
+            tile_scan_data = self.image.attrs.get("TileScanInfo", {}).get("Tile", {})
+
+            # Normalize to list: XML parsers may return a dict when there is only one element
+            if isinstance(tile_scan_data, dict):
+                tile_scan_data = [tile_scan_data]
+
+            # Extract stage positions
+            to_um = _convert_units(1, "m", "um")
+            x_values_um = to_um * np.array([_TileInfo(**item).PosX for item in tile_scan_data])
+            y_values_um = to_um * np.array([_TileInfo(**item).PosY for item in tile_scan_data])
+            z_values_um = to_um * np.array([_TileInfo(**item).PosZ for item in tile_scan_data])
+
         if self.dimensions.is_zstack:
             z_dim = self.find_dimension(3)
             to_um = _convert_units(1, z_dim.unit, "um")
@@ -720,12 +747,17 @@ class _LeicaMetadataParser:
                 .get("StagePosition", {})
                 .get("LaserValues", {})
             )
+
             # Normalize to list: XML parsers may return a dict when there is only one element
             if isinstance(laser_values_data, dict):
                 laser_values_data = [laser_values_data]
+
+            # Extract laser wavelengths
             w_values_nm = np.array([_LaserValue(**item).Wavelength for item in laser_values_data])
 
         return MeasuredDimensions(
+            x_values_um=x_values_um,
+            y_values_um=y_values_um,
             z_values_um=z_values_um,
             t_values_ms=t_values_ms,
             w_values_nm=w_values_nm,
