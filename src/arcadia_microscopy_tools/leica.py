@@ -715,45 +715,66 @@ class _LeicaMetadataParser:
         x_values_um = None
         y_values_um = None
         z_values_um = None
+        t_values_ms = None
+        w_values_nm = None
+
         if self.dimensions.is_montage:
             tile_scan_data = self.image.attrs.get("TileScanInfo", {}).get("Tile", {})
-
             # Normalize to list: XML parsers may return a dict when there is only one element
             if isinstance(tile_scan_data, dict):
                 tile_scan_data = [tile_scan_data]
-
             # Extract stage positions
             to_um = _convert_units(1, "m", "um")
             x_values_um = to_um * np.array([_TileInfo(**item).PosX for item in tile_scan_data])
             y_values_um = to_um * np.array([_TileInfo(**item).PosY for item in tile_scan_data])
             z_values_um = to_um * np.array([_TileInfo(**item).PosZ for item in tile_scan_data])
+            # Convert to relative positions
+            x_values_um -= x_values_um.mean()
+            y_values_um -= y_values_um.mean()
+            z_values_um -= z_values_um.mean()
 
         if self.dimensions.is_zstack:
             z_dim = self.find_dimension(3)
             to_um = _convert_units(1, z_dim.unit, "um")
             z_values_um = to_um * self.image.coords["Z"]
 
-        t_values_ms = None
         if self.dimensions.is_timelapse:
             t_dim = self.find_dimension(4)
             to_ms = _convert_units(1, t_dim.unit, "ms")
             t_values_ms = to_ms * self.image.coords["T"]
 
-        w_values_nm = None
-        if self.dimensions.is_spectral:
+        # Typical Lambda scan
+        if (
+            self.dimensions.is_spectral
+            and not self.dimensions.is_montage
+            and "merged" not in self.image_name.lower()
+        ):
             laser_values_data = (
                 self.image.attrs.get("LaserValues", {})
                 .get("Laser", {})
                 .get("StagePosition", {})
                 .get("LaserValues", {})
             )
-
             # Normalize to list: XML parsers may return a dict when there is only one element
             if isinstance(laser_values_data, dict):
                 laser_values_data = [laser_values_data]
-
             # Extract laser wavelengths
             w_values_nm = np.array([_LaserValue(**item).Wavelength for item in laser_values_data])
+
+        # Lambda scan in Navigator: metadata only contains Lambda scan definition
+        elif (self.dimensions.is_spectral and self.dimensions.is_montage) or (
+            self.dimensions.is_spectral and "merged" in self.image_name.lower()
+        ):
+            lambda_scan_definition = (
+                self.image.attrs.get("HardwareSetting", {})
+                .get("ATLConfocalSettingDefinition", {})
+                .get("LambdaDefinition", {})
+                .get("LambdaExcitation", {})
+            )
+            w_start_nm = lambda_scan_definition.get("LambdaExcitationBeginDouble", np.nan)
+            w_end_nm = lambda_scan_definition.get("LambdaExcitationEndDouble", np.nan)
+            w_steps = lambda_scan_definition.get("LambdaExcitationStepCount", np.nan)
+            w_values_nm = np.linspace(w_start_nm, w_end_nm, w_steps)
 
         return MeasuredDimensions(
             x_values_um=x_values_um,
