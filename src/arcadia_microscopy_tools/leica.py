@@ -695,10 +695,10 @@ class _LeicaMetadataParser:
         w_values_nm = None
         if self.dimensions.is_spectral:
             laser_values_data = (
-                self.image.attrs.get("_LaserValues", {})
+                self.image.attrs.get("LaserValues", {})
                 .get("Laser", {})
                 .get("StagePosition", {})
-                .get("_LaserValues", {})
+                .get("LaserValues", {})
             )
             # Normalize to list: XML parsers may return a dict when there is only one element
             if isinstance(laser_values_data, dict):
