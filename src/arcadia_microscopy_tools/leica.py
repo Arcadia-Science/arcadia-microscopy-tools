@@ -281,7 +281,7 @@ class _LeicaMetadataParser:
     # Set of detectors used for either the UV (405 nm) or WLL laser
     _FLUORESCENCE_DETECTORS = {"HyD S 1", "HyD S 2", "HyD X 3", "HyD R 4"}
 
-    # Map of LIF dimension key → DimensionFlag for _get_dimension_flags
+    # Map of LIF dimension key → DimensionFlag for get_dimension_flags
     _DIM_FLAG_MAP: dict[str, DimensionFlags] = {
         "T": DimensionFlags.TIMELAPSE,
         "Z": DimensionFlags.Z_STACK,
@@ -332,27 +332,27 @@ class _LeicaMetadataParser:
                 )
 
             self.sizes = self.image.sizes
-            self.dimensions = self._get_dimension_flags()
-            self.timestamp = self._parse_timestamp()
+            self.dimensions = self.get_dimension_flags()
+            self.timestamp = self.parse_timestamp()
 
             # Parse image description
-            self.image_description = self._parse_image_description()
+            self.image_description = self.parse_image_description()
 
             # Parse laser system state
-            self.laser_system_state = self._parse_laser_array_data()
+            self.laser_system_state = self.parse_laser_array_data()
 
             # Parse image-level metadata once, shared across all channels
-            resolution = self._parse_nominal_dimensions()
-            measured = self._parse_measured_dimensions()
-            acquisition = self._parse_acquisition_settings()
-            optics = self._parse_microscope_settings()
+            resolution = self.parse_nominal_dimensions()
+            measured = self.parse_measured_dimensions()
+            acquisition = self.parse_acquisition_settings()
+            optics = self.parse_microscope_settings()
 
-            channel_metadata_list = self._parse_all_channels(
+            channel_metadata_list = self.parse_all_channels(
                 resolution, measured, acquisition, optics
             )
             return ImageMetadata(self.sizes, channel_metadata_list)
 
-    def _parse_image_description(self) -> _ImageDescription:
+    def parse_image_description(self) -> _ImageDescription:
         """Parse the _ImageDescription XML element into structured data.
 
         Returns:
@@ -380,7 +380,7 @@ class _LeicaMetadataParser:
 
         return _ImageDescription(lif_channels=lif_channels, lif_dimensions=lif_dimensions)
 
-    def _parse_laser_array_data(self) -> _LaserSystemState:
+    def parse_laser_array_data(self) -> _LaserSystemState:
         """Parse laser system states from hardware settings."""
 
         laser_array_data = (
@@ -396,7 +396,7 @@ class _LeicaMetadataParser:
             lasers=[_LaserState(**laser_data) for laser_data in laser_array_data]
         )
 
-    def _parse_all_channels(
+    def parse_all_channels(
         self,
         resolution: NominalDimensions,
         measured: MeasuredDimensions,
@@ -412,7 +412,7 @@ class _LeicaMetadataParser:
             )
 
         return [
-            self._parse_channel_metadata(
+            self.parse_channel_metadata(
                 lif_channel,
                 self.channels[i] if self.channels else None,
                 resolution,
@@ -423,7 +423,7 @@ class _LeicaMetadataParser:
             for i, lif_channel in enumerate(self.image_description.lif_channels)
         ]
 
-    def _parse_channel_metadata(
+    def parse_channel_metadata(
         self,
         lif_channel: _LifChannel,
         channel: Channel | None,
@@ -434,7 +434,7 @@ class _LeicaMetadataParser:
     ) -> ChannelMetadata:
         """Parse metadata for a specific channel."""
         if channel is None:
-            channel = self._infer_channel(lif_channel)
+            channel = self.infer_channel(lif_channel)
 
         return ChannelMetadata(
             channel=channel,
@@ -446,7 +446,7 @@ class _LeicaMetadataParser:
             optics=optics,
         )
 
-    def _infer_channel(self, lif_channel: _LifChannel) -> Channel:
+    def infer_channel(self, lif_channel: _LifChannel) -> Channel:
         """Infer channel from LIF metadata using laser state and detector configuration.
 
         Channel inference is challenging due to limitations in LIF metadata structure:
@@ -468,17 +468,17 @@ class _LeicaMetadataParser:
             _LightSourceType.WLL,
         ):
             active_laser_state = self.laser_system_state.get_laser_by_type(active_lasers[0])
-            return self._infer_channel_from_laser_state(active_laser_state)
+            return self.infer_channel_from_laser_state(active_laser_state)
 
-        return self._infer_channel_from_detector(lif_channel, active_lasers)
+        return self.infer_channel_from_detector(lif_channel, active_lasers)
 
-    def _infer_channel_from_laser_state(self, laser_state: _LaserState) -> Channel:
+    def infer_channel_from_laser_state(self, laser_state: _LaserState) -> Channel:
         """Infer channel from laser state using excitation wavelength."""
         if laser_state._LightSourceType == _LightSourceType.CRS:
             raise ValueError("Cannot infer channel from CRS laser")
 
         # Can reasonably infer channel only in the case where either the UV or WLL laser is ON
-        excitation_wavelength_nm = self._extract_wavelength_value(laser_state.WavelengthDouble)
+        excitation_wavelength_nm = self.extract_wavelength_value(laser_state.WavelengthDouble)
         try:
             return Channel.from_excitation_wavelength(
                 excitation_wavelength_nm, name=laser_state._LightSourceType.name
@@ -491,7 +491,7 @@ class _LeicaMetadataParser:
             )
             return Channel(name=laser_state._LightSourceType.name)
 
-    def _infer_channel_from_detector(
+    def infer_channel_from_detector(
         self,
         lif_channel: _LifChannel,
         active_lasers: list[_LightSourceType],
@@ -516,7 +516,7 @@ class _LeicaMetadataParser:
                 else _LightSourceType.DIODE
             )
             laser_state = self.laser_system_state.get_laser_by_type(laser_type)
-            return self._infer_channel_from_laser_state(laser_state)
+            return self.infer_channel_from_laser_state(laser_state)
 
         # Try exact match with beam route, then fall back to match without beam route
         channel = self._CHANNEL_DETECTION_MAP.get(
@@ -532,7 +532,7 @@ class _LeicaMetadataParser:
         # For CARS and SRS, calculate wavelengths from CRS laser
         if channel in (CARS, SRS):
             laser_state = self.laser_system_state.get_laser_by_type(_LightSourceType.CRS)
-            pump_wavelength_nm = self._extract_wavelength_value(laser_state.WavelengthDouble)
+            pump_wavelength_nm = self.extract_wavelength_value(laser_state.WavelengthDouble)
 
             if channel == CARS:
                 # CARS detects anti-Stokes wavelength
@@ -552,7 +552,7 @@ class _LeicaMetadataParser:
 
         return channel
 
-    def _get_dimension_flags(self) -> DimensionFlags:
+    def get_dimension_flags(self) -> DimensionFlags:
         """Determine dimension flags from LIF file for a single channel.
 
         LIF images may have the following dimensions in almost any order:
@@ -580,7 +580,7 @@ class _LeicaMetadataParser:
                 result |= flag
         return result
 
-    def _parse_timestamp(self) -> datetime:
+    def parse_timestamp(self) -> datetime:
         """Parse timestamp from LIF metadata."""
         try:
             return self._lif.images[self.image_name].timestamps[0]
@@ -593,11 +593,11 @@ class _LeicaMetadataParser:
             return datetime(1969, 7, 20, 20, 17)
 
     @property
-    def _confocal_settings(self) -> dict:
+    def confocal_settings(self) -> dict:
         """Get ATLConfocalSettingDefinition from hardware settings."""
         return self.image.attrs.get("HardwareSetting", {}).get("ATLConfocalSettingDefinition", {})
 
-    def _parse_nominal_dimensions(self) -> NominalDimensions:
+    def parse_nominal_dimensions(self) -> NominalDimensions:
         """Parse nominal dimensions from LIF metadata.
 
         Dimension ID legend:
@@ -612,8 +612,8 @@ class _LeicaMetadataParser:
         """
 
         # X and Y dimensions
-        x_dim = self._find_dimension(1)
-        y_dim = self._find_dimension(2)
+        x_dim = self.find_dimension(1)
+        y_dim = self.find_dimension(2)
         x_step_um = _convert_units(x_dim.step, x_dim.unit, "um")
         y_step_um = _convert_units(y_dim.step, y_dim.unit, "um")
         if abs(x_step_um - y_step_um) / x_step_um > 0.01:
@@ -627,14 +627,14 @@ class _LeicaMetadataParser:
         # Optional Z dimension
         z_size_px, z_step_um = None, None
         if self.dimensions.is_zstack:
-            z_dim = self._find_dimension(3)
+            z_dim = self.find_dimension(3)
             z_size_px = z_dim.number_of_elements
             z_step_um = _convert_units(z_dim.step, z_dim.unit, "um")
 
         # Optional T dimension
         t_size_px, t_step_ms = None, None
         if self.dimensions.is_timelapse:
-            t_dim = self._find_dimension(4)
+            t_dim = self.find_dimension(4)
             t_size_px = t_dim.number_of_elements
             t_step_ms = _convert_units(t_dim.step, t_dim.unit, "ms")
 
@@ -643,7 +643,7 @@ class _LeicaMetadataParser:
         if self.dimensions.is_spectral:
             for dim_id, size_key in [(9, "Λ"), (5, "λ")]:
                 if size_key in self.sizes and self.sizes[size_key] > 1:
-                    w_dim = self._find_dimension(dim_id)
+                    w_dim = self.find_dimension(dim_id)
                     w_size_px = w_dim.number_of_elements
                     w_step_nm = _convert_units(w_dim.step, w_dim.unit, "nm")
                     break
@@ -660,7 +660,7 @@ class _LeicaMetadataParser:
             w_step_nm=w_step_nm,
         )
 
-    def _find_dimension(self, dim_id: int) -> _LifDimension:
+    def find_dimension(self, dim_id: int) -> _LifDimension:
         """Find a _LifDimension by its ID."""
         dimension = next(
             (d for d in self.image_description.lif_dimensions if d.dim_id == dim_id), None
@@ -669,7 +669,7 @@ class _LeicaMetadataParser:
             raise ValueError(f"Missing dimension (dim_id={dim_id}) in LIF metadata")
         return dimension
 
-    def _parse_measured_dimensions(self) -> MeasuredDimensions:
+    def parse_measured_dimensions(self) -> MeasuredDimensions:
         """Parse measured dimension values from LIF metadata.
 
         Coords are created in liffile.py from properties in LifDimension, hence they are not
@@ -682,13 +682,13 @@ class _LeicaMetadataParser:
 
         z_values_um = None
         if self.dimensions.is_zstack:
-            z_dim = self._find_dimension(3)
+            z_dim = self.find_dimension(3)
             to_um = _convert_units(1, z_dim.unit, "um")
             z_values_um = to_um * self.image.coords["Z"]
 
         t_values_ms = None
         if self.dimensions.is_timelapse:
-            t_dim = self._find_dimension(4)
+            t_dim = self.find_dimension(4)
             to_ms = _convert_units(1, t_dim.unit, "ms")
             t_values_ms = to_ms * self.image.coords["T"]
 
@@ -711,9 +711,9 @@ class _LeicaMetadataParser:
             w_values_nm=w_values_nm,
         )
 
-    def _parse_acquisition_settings(self) -> AcquisitionSettings:
+    def parse_acquisition_settings(self) -> AcquisitionSettings:
         """Parse acquisition settings from LIF metadata."""
-        microscope_data = self._confocal_settings
+        microscope_data = self.confocal_settings
 
         zoom = float(microscope_data.get("Zoom", np.nan))
         pixel_dwell_time_s = float(microscope_data.get("PixelDwellTime", np.nan))
@@ -750,9 +750,9 @@ class _LeicaMetadataParser:
             frame_accumulation=frame_accumulation,
         )
 
-    def _parse_microscope_settings(self) -> MicroscopeConfig:
+    def parse_microscope_settings(self) -> MicroscopeConfig:
         """Parse microscope settings from LIF metadata."""
-        microscope_data = self._confocal_settings
+        microscope_data = self.confocal_settings
 
         magnification = int(microscope_data.get("Magnification", 0))
         numerical_aperture = float(microscope_data.get("NumericalAperture", np.nan))
@@ -767,7 +767,7 @@ class _LeicaMetadataParser:
         )
 
     @staticmethod
-    def _extract_wavelength_value(value: str | int | float) -> float:
+    def extract_wavelength_value(value: str | int | float) -> float:
         """Extract a wavelength value and convert to nanometers if needed.
 
         Args:
