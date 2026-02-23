@@ -241,7 +241,9 @@ class _LaserSystemState:
     @property
     def active_lasers(self) -> list[_LightSourceType]:
         """List of active laser types based on power state."""
-        return [laser._LightSourceType for laser in self.lasers if laser._PowerState == _PowerState.ON]
+        return [
+            laser._LightSourceType for laser in self.lasers if laser._PowerState == _PowerState.ON
+        ]
 
     def get_laser_by_type(self, laser_type: _LightSourceType) -> _LaserState:
         """Get laser state by light source type."""
