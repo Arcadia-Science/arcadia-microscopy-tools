@@ -735,7 +735,6 @@ class _LeicaMetadataParser:
             * line_accumulation
             * frame_averaging
             * frame_accumulation
-            * 1e3
         )
 
         return AcquisitionSettings(
