@@ -762,18 +762,16 @@ class _LeicaMetadataParser:
             w_values_nm = np.array([_LaserValue(**item).Wavelength for item in laser_values_data])
 
         # Lambda scan in Navigator: metadata only contains Lambda scan definition
-        elif (self.dimensions.is_spectral and self.dimensions.is_montage) or (
-            self.dimensions.is_spectral and "merged" in self.image_name.lower()
-        ):
+        elif self.dimensions.is_spectral:
             lambda_scan_definition = (
                 self.image.attrs.get("HardwareSetting", {})
                 .get("ATLConfocalSettingDefinition", {})
                 .get("LambdaDefinition", {})
                 .get("LambdaExcitation", {})
             )
-            w_start_nm = lambda_scan_definition.get("LambdaExcitationBeginDouble", np.nan)
-            w_end_nm = lambda_scan_definition.get("LambdaExcitationEndDouble", np.nan)
-            w_steps = lambda_scan_definition.get("LambdaExcitationStepCount", np.nan)
+            w_start_nm = float(lambda_scan_definition.get("LambdaExcitationBeginDouble", np.nan))
+            w_end_nm = float(lambda_scan_definition.get("LambdaExcitationEndDouble", np.nan))
+            w_steps = int(lambda_scan_definition.get("LambdaExcitationStepCount", 0))
             w_values_nm = np.linspace(w_start_nm, w_end_nm, w_steps)
 
         return MeasuredDimensions(
