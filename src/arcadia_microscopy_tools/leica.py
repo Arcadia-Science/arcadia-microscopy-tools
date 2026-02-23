@@ -10,7 +10,7 @@ import liffile
 import numpy as np
 from pydantic import BaseModel, computed_field
 
-from .channels import BRIGHTFIELD, CARS, SHG, SRS, Channel
+from .channels import BRIGHTFIELD, E_CARS, E_SHG, F_CARS, F_SHG, SRS, Channel
 from .metadata_structures import (
     AcquisitionSettings,
     ChannelMetadata,
@@ -281,6 +281,9 @@ class _LeicaMetadataParser:
     # Set of detectors used for either the UV (405 nm) or WLL laser
     _FLUORESCENCE_DETECTORS = {"HyD S 1", "HyD S 2", "HyD X 3", "HyD R 4"}
 
+    # Set of channels that utilize the CRS laser
+    _CRS_LASER_MODALITIES = {SRS, E_CARS, F_CARS, E_SHG, F_SHG}
+
     # Map of LIF dimension key → DimensionFlag for get_dimension_flags
     _DIM_FLAG_MAP: dict[str, DimensionFlags] = {
         "T": DimensionFlags.TIMELAPSE,
@@ -293,13 +296,20 @@ class _LeicaMetadataParser:
 
     # Map of (detector_name, beam_route) to Channel for automatic channel detection
     _CHANNEL_DETECTION_MAP = {
-        ("F-SRS", None): SRS,  # expected beam_route is "10;0" but not checked
-        ("HyD NDD 1", "20;21"): CARS,
-        # TODO: figure out beam route for true SHG vs pseudo-SHG (brightfield)
-        # true SHG uses CRS pump laser (Stokes off) while pseudo-SHG uses WLL
-        ("F-SHG", None): BRIGHTFIELD,
-        # ("F-SHG", None): SHG,
-        ("E-SHG", None): SHG,
+        ("F-SRS", None): SRS,  # expected beam route is "10;0" but not checked
+        ("HyD NDD 1", "20;21"): E_CARS,
+        ("HyD NDD 2", "20;2"): E_SHG,
+        ("Trans PMT 2", None): F_CARS,  # beam route unknown
+        ("Trans PMT 3", "10;2"): BRIGHTFIELD,  # ambiguous: same detector/route as F_SHG
+    }
+
+    # Map of (detector_name, beam_route) to warning message for ambiguous channel assignments
+    _CHANNEL_AMBIGUITY_WARNINGS: dict[tuple[str | None, str | None], str] = {
+        ("Trans PMT 3", "10;2"): (
+            "Detected BRIGHTFIELD via Trans PMT 3 / BeamRoute '10;2', but this detector and beam "
+            "route are also used for F-SHG. If this is an F-SHG channel, pass the channels "
+            "argument explicitly (e.g. channels=[..., F_SHG, ...])."
+        ),
     }
 
     def __init__(
@@ -529,16 +539,26 @@ class _LeicaMetadataParser:
                 f"BeamRoute: {beam_route}. Please provide channels list explicitly."
             )
 
-        # For CARS and SRS, calculate wavelengths from CRS laser
-        if channel in (CARS, SRS):
+        # Warn if this detector/beam route is ambiguous between two modalities
+        warning_msg = self._CHANNEL_AMBIGUITY_WARNINGS.get(
+            (detector_name, beam_route)
+        ) or self._CHANNEL_AMBIGUITY_WARNINGS.get((detector_name, None))
+        if warning_msg:
+            warnings.warn(warning_msg, stacklevel=2)
+
+        # For SRS, (E/F)CARS, and (E/F)SHG calculate wavelengths from CRS laser
+        if channel in self._CRS_LASER_MODALITIES:
             laser_state = self.laser_system_state.get_laser_by_type(_LightSourceType.CRS)
             pump_wavelength_nm = self.extract_wavelength_value(laser_state.WavelengthDouble)
 
-            if channel == CARS:
+            if channel in (E_CARS, F_CARS):
                 # CARS detects anti-Stokes wavelength
                 emission_nm = float(
                     calculate_antistokes_wavelength(pump_wavelength_nm, CRS_STOKES_WAVELENGTH_NM)
                 )
+            elif channel in (E_SHG, F_SHG):
+                # SHG emission wavelength is exactly half the excitation wavelength
+                emission_nm = pump_wavelength_nm / 2
             else:  # SRS
                 # SRS is loss-based, emission wavelength equals excitation
                 emission_nm = pump_wavelength_nm

@@ -186,12 +186,18 @@ TRITC = Channel.register(
 CY5 = Channel.register(
     Channel(name="CY5", excitation_nm=640, emission_nm=665, color=HexCode("cy5", "#a30000"))
 )
-CARS = Channel.register(
-    Channel(name="CARS", color=HexCode("cars", "#AB1299")),
-)
 SRS = Channel.register(
     Channel(name="SRS", color=HexCode("srs", "#e63535")),
 )
-SHG = Channel.register(
-    Channel(name="SHG", color=HexCode("shg", "#f29b4f"))
+E_CARS = Channel.register(
+    Channel(name="E-CARS", color=HexCode("e-cars", "#AB1299")),
+)
+F_CARS = Channel.register(
+    Channel(name="F-CARS", color=HexCode("f-cars", "#AB1299")),
+)
+E_SHG = Channel.register(
+    Channel(name="E-SHG", color=HexCode("e-shg", "#f29b4f"))
+)
+F_SHG = Channel.register(
+    Channel(name="F-SHG", color=HexCode("f-shg", "#f29b4f"))
 )
