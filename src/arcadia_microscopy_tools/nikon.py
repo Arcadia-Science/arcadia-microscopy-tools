@@ -269,12 +269,12 @@ class _NikonMetadataParser:
     ) -> AcquisitionSettings:
         """Parse acquisition settings from nd2 channel metadata and text_info."""
         sample_text = self._extract_sample_text(channel_index)
-        exposure_time_ms = self._parse_exposure_time(sample_text)
+        exposure_time_s = self._parse_exposure_time(sample_text)
         zoom = nd2_channel.microscope.zoomMagnification
         binning = self._parse_binning(sample_text)
 
         return AcquisitionSettings(
-            exposure_time_ms=exposure_time_ms,
+            exposure_time_s=exposure_time_s,
             zoom=zoom,
             binning=binning,
             pixel_dwell_time_us=None,
@@ -344,7 +344,7 @@ class _NikonMetadataParser:
                 if match:
                     time, unit = match.groups()
                     time_s = self._convert_time_to_s(time, unit)
-                    return time_s * 1000  # Convert to ms for AcquisitionSettings
+                    return time_s
         return None
 
     def _parse_power(self, plane_text: str) -> float | None:

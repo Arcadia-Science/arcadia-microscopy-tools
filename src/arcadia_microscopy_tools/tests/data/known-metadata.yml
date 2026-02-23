@@ -12,7 +12,7 @@ example-multichannel.nd2:
     acquisition:
       zoom: 1.0
       binning: 1x1
-      exposure_time_ms: 20.0
+      exposure_time_s: 0.02
   DAPI:
     resolution:
       y_size_px: 256
@@ -26,7 +26,7 @@ example-multichannel.nd2:
     acquisition:
       zoom: 1.0
       binning: 1x1
-      exposure_time_ms: 1000.0
+      exposure_time_s: 1.0
   FITC:
     resolution:
       y_size_px: 256
@@ -40,7 +40,7 @@ example-multichannel.nd2:
     acquisition:
       zoom: 1.0
       binning: 1x1
-      exposure_time_ms: 1000.0
+      exposure_time_s: 1.0
   TRITC:
     resolution:
       y_size_px: 256
@@ -54,7 +54,7 @@ example-multichannel.nd2:
     acquisition:
       zoom: 1.0
       binning: 1x1
-      exposure_time_ms: 1000.0
+      exposure_time_s: 1.0
 
 example-timelapse.nd2:
   FITC:
@@ -70,7 +70,7 @@ example-timelapse.nd2:
     acquisition:
       zoom: 1.0
       binning: 2x2
-      exposure_time_ms: 500.0
+      exposure_time_s: 0.5
 
 example-zstack.nd2:
   FITC:
@@ -86,4 +86,4 @@ example-zstack.nd2:
     acquisition:
       zoom: 1.0
       binning: 1x1
-      exposure_time_ms: 500.0
+      exposure_time_s: 0.5

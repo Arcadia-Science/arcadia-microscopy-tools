@@ -102,7 +102,7 @@ class MeasuredDimensions(DimensionValidatorMixin):
 class AcquisitionSettings(DimensionValidatorMixin):
     """Acquisition parameters for image capture."""
 
-    exposure_time_ms: float | None = None
+    exposure_time_s: float | None = None
     zoom: float | None = None
     binning: str | None = None
     pixel_dwell_time_us: float | None = None

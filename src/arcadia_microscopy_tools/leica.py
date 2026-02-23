@@ -727,7 +727,7 @@ class _LeicaMetadataParser:
         pixel_dwell_time_us = 1e6 * pixel_dwell_time_s
 
         # Calculate total exposure time, accounting for all averaging and accumulation passes
-        exposure_time_ms = (
+        exposure_time_s = (
             pixel_dwell_time_s
             * self.sizes["X"]
             * self.sizes["Y"]
@@ -739,7 +739,7 @@ class _LeicaMetadataParser:
         )
 
         return AcquisitionSettings(
-            exposure_time_ms=exposure_time_ms,
+            exposure_time_s=exposure_time_s,
             zoom=zoom,
             binning=None,
             pixel_dwell_time_us=pixel_dwell_time_us,
