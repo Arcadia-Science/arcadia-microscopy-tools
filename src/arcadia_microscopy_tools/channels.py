@@ -165,15 +165,9 @@ class Channel:
         return HexCode(name, hex_code=hex_code)
 
 
-BRIGHTFIELD = Channel.register(
-    Channel(name="BRIGHTFIELD", color=HexCode("brightfield", "#ffffff")),
-)
-DIC = Channel.register(
-    Channel(name="DIC", color=HexCode("dic", "#ffffff")),
-)
-PHASE = Channel.register(
-    Channel(name="PHASE", color=HexCode("phase", "#dddddd")),
-)
+BRIGHTFIELD = Channel.register(Channel(name="BRIGHTFIELD", color=HexCode("brightfield", "#ffffff")))
+DIC = Channel.register(Channel(name="DIC", color=HexCode("dic", "#ffffff")))
+PHASE = Channel.register(Channel(name="PHASE", color=HexCode("phase", "#dddddd")))
 DAPI = Channel.register(
     Channel(name="DAPI", excitation_nm=405, emission_nm=450, color=HexCode("dapi", "#0033ff"))
 )
@@ -186,18 +180,8 @@ TRITC = Channel.register(
 CY5 = Channel.register(
     Channel(name="CY5", excitation_nm=640, emission_nm=665, color=HexCode("cy5", "#a30000"))
 )
-SRS = Channel.register(
-    Channel(name="SRS", color=HexCode("srs", "#e63535")),
-)
-E_CARS = Channel.register(
-    Channel(name="E-CARS", color=HexCode("e-cars", "#AB1299")),
-)
-F_CARS = Channel.register(
-    Channel(name="F-CARS", color=HexCode("f-cars", "#AB1299")),
-)
-E_SHG = Channel.register(
-    Channel(name="E-SHG", color=HexCode("e-shg", "#f29b4f"))
-)
-F_SHG = Channel.register(
-    Channel(name="F-SHG", color=HexCode("f-shg", "#f29b4f"))
-)
+SRS = Channel.register(Channel(name="SRS", color=HexCode("srs", "#e63535")))
+E_CARS = Channel.register(Channel(name="E-CARS", color=HexCode("e-cars", "#AB1299")))
+F_CARS = Channel.register(Channel(name="F-CARS", color=HexCode("f-cars", "#AB1299")))
+E_SHG = Channel.register(Channel(name="E-SHG", color=HexCode("e-shg", "#f29b4f")))
+F_SHG = Channel.register(Channel(name="F-SHG", color=HexCode("f-shg", "#f29b4f")))
