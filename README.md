@@ -7,7 +7,7 @@ This repository contains a Python package called `arcadia_microscopy_tools`. The
 - Nikon ECLIPSE Ni-E (Babu Frik)
 - Leica Stellaris 8 (The Borg)
 
-This package provides tooling for image preprocessing, cell/particle segmentation, morphology analysis, fluorescence quantification, and batch processing pipelines. Supports native ND2 file format via [nd2](https://github.com/tlambert03/nd2). LIF file support is in progress and will use [liffile](https://github.com/nimne/liffile). The package integrates with popular scientific Python libraries for streamlined high-content screening and quantitative microscopy workflows.
+This package provides tooling for image preprocessing, cell/particle segmentation, morphology analysis, fluorescence quantification, and batch processing pipelines. Supports ND2 files from Nikon microscopes via [nd2](https://github.com/tlambert03/nd2) and LIF files from Leica microscopes via [liffile](https://github.com/nimne/liffile). The package integrates with popular scientific Python libraries for streamlined high-content screening and quantitative microscopy workflows.
 
 ## Installation
 
@@ -59,8 +59,14 @@ image.num_channels   # Number of channels: 4
 Load LIF files from Leica microscopes:
 
 ```python
-# Load a Leica LIF file
-image = MicroscopyImage.from_lif_path(Path("path/to/image.lif"))
+from arcadia_microscopy_tools.leica import list_image_names
+
+# LIF files can contain multiple images — list them first
+lif_path = Path("path/to/image.lif")
+print(list_image_names(lif_path))  # e.g. ['Series001', 'Series002']
+
+# Load a specific image by name
+image = MicroscopyImage.from_lif_path(lif_path, image_name="Series001")
 ```
 
 ### Working with channels
