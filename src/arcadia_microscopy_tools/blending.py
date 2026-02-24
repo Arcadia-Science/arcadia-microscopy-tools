@@ -7,7 +7,7 @@ from matplotlib.colors import LinearSegmentedColormap, Normalize
 from skimage.color import gray2rgb
 
 from .channels import Channel
-from .typing import FloatArray
+from .typing import Float64Array
 
 
 @dataclass
@@ -23,7 +23,7 @@ class Layer:
     """
 
     channel: Channel
-    intensities: FloatArray
+    intensities: Float64Array
     opacity: float = 1.0
     transparent: bool = True
 
@@ -34,11 +34,11 @@ class Layer:
 
 
 def overlay_channels(
-    background: FloatArray,
-    channel_intensities: dict[Channel, FloatArray],
+    background: Float64Array,
+    channel_intensities: dict[Channel, Float64Array],
     opacity: float = 1.0,
     transparent: bool = True,
-) -> FloatArray:
+) -> Float64Array:
     """Create a fluorescence overlay.
 
     All channels are blended with the same opacity and transparency settings.
@@ -73,9 +73,9 @@ def overlay_channels(
 
 
 def create_sequential_overlay(
-    background: FloatArray,
+    background: Float64Array,
     layers: list[Layer],
-) -> FloatArray:
+) -> Float64Array:
     """Create an overlay by sequentially blending multiple channels onto a background.
 
     Args:
@@ -109,10 +109,10 @@ def create_sequential_overlay(
 
 
 def alpha_blend(
-    background: FloatArray,
-    foreground: FloatArray,
-    alpha: FloatArray,
-) -> FloatArray:
+    background: Float64Array,
+    foreground: Float64Array,
+    alpha: Float64Array,
+) -> Float64Array:
     """Alpha blend foreground onto background.
 
     Args:
@@ -127,9 +127,9 @@ def alpha_blend(
 
 
 def colorize(
-    intensities: FloatArray,
+    intensities: Float64Array,
     colormap: LinearSegmentedColormap,
-) -> FloatArray:
+) -> Float64Array:
     """Apply a colormap to a 2D intensity array.
 
     Args:

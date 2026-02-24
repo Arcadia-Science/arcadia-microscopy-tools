@@ -12,8 +12,8 @@ class Channel:
     """Represents a microscopy imaging channel with optical properties."""
 
     name: str
-    excitation_nm: int | None = None
-    emission_nm: int | None = None
+    excitation_nm: float | None = None
+    emission_nm: float | None = None
     color: HexCode | None = None
 
     # Class-level registry of predefined channels
@@ -82,7 +82,7 @@ class Channel:
     def from_emission_wavelength(
         cls,
         wavelength_nm: float,
-        excitation_nm: int | None = None,
+        excitation_nm: float | None = None,
         name: str | None = None,
     ) -> Channel:
         """Create a channel from an emission wavelength with automatically generated color.
@@ -107,7 +107,7 @@ class Channel:
     def from_excitation_wavelength(
         cls,
         wavelength_nm: float,
-        emission_nm: int | None = None,
+        emission_nm: float | None = None,
         name: str | None = None,
     ) -> Channel:
         """Create a channel from an excitation wavelength with automatically generated color.
@@ -165,15 +165,9 @@ class Channel:
         return HexCode(name, hex_code=hex_code)
 
 
-BRIGHTFIELD = Channel.register(
-    Channel(name="BRIGHTFIELD", color=HexCode("brightfield", "#ffffff")),
-)
-DIC = Channel.register(
-    Channel(name="DIC", color=HexCode("dic", "#ffffff")),
-)
-PHASE = Channel.register(
-    Channel(name="PHASE", color=HexCode("phase", "#dddddd")),
-)
+BRIGHTFIELD = Channel.register(Channel(name="BRIGHTFIELD", color=HexCode("brightfield", "#ffffff")))
+DIC = Channel.register(Channel(name="DIC", color=HexCode("dic", "#ffffff")))
+PHASE = Channel.register(Channel(name="PHASE", color=HexCode("phase", "#dddddd")))
 DAPI = Channel.register(
     Channel(name="DAPI", excitation_nm=405, emission_nm=450, color=HexCode("dapi", "#0033ff"))
 )
@@ -186,9 +180,8 @@ TRITC = Channel.register(
 CY5 = Channel.register(
     Channel(name="CY5", excitation_nm=640, emission_nm=665, color=HexCode("cy5", "#a30000"))
 )
-CARS = Channel.register(
-    Channel(name="CARS", color=HexCode("cars", "#AB1299")),
-)
-SRS = Channel.register(
-    Channel(name="SRS", color=HexCode("srs", "#e63535")),
-)
+SRS = Channel.register(Channel(name="SRS", color=HexCode("srs", "#e63535")))
+E_CARS = Channel.register(Channel(name="E-CARS", color=HexCode("e-cars", "#AB1299")))
+F_CARS = Channel.register(Channel(name="F-CARS", color=HexCode("f-cars", "#AB1299")))
+E_SHG = Channel.register(Channel(name="E-SHG", color=HexCode("e-shg", "#f29b4f")))
+F_SHG = Channel.register(Channel(name="F-SHG", color=HexCode("f-shg", "#f29b4f")))

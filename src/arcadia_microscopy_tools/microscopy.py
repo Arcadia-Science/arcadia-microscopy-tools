@@ -14,8 +14,8 @@ from .typing import ScalarArray, UInt16Array
 
 
 @dataclass
-class ImageMetadata:
-    """Image metadata for a microscopy image.
+class InstrumentMetadata:
+    """Instrument metadata for a microscopy image.
 
     Contains metadata for all channels in the image.
 
@@ -56,8 +56,8 @@ class ImageMetadata:
         cls,
         nd2_path: Path,
         channels: list[Channel] | None = None,
-    ) -> ImageMetadata:
-        """Create ImageMetadata from a Nikon ND2 file.
+    ) -> InstrumentMetadata:
+        """Create InstrumentMetadata from a Nikon ND2 file.
 
         Args:
             nd2_path: Path to the Nikon ND2 file.
@@ -65,25 +65,47 @@ class ImageMetadata:
                 If not provided, channels are inferred from the ND2 file's optical configuration.
 
         Returns:
-            ImageMetadata with sizes and channel metadata for all channels.
+            InstrumentMetadata with sizes and channel metadata for all channels.
         """
-        from .nikon import create_image_metadata_from_nd2
+        from .nikon import create_instrument_metadata_from_nd2
 
-        return create_image_metadata_from_nd2(nd2_path, channels)
+        return create_instrument_metadata_from_nd2(nd2_path, channels)
+
+    @classmethod
+    def from_lif_path(
+        cls,
+        lif_path: Path,
+        image_name: str,
+        channels: list[Channel] | None = None,
+    ) -> InstrumentMetadata:
+        """Create InstrumentMetadata from a Leica LIF file.
+
+        Args:
+            lif_path: Path to the Leica LIF file.
+            image_name: Name of the specific image within the LIF file to extract.
+            channels: Optional list of Channel objects to override automatic channel detection.
+                If not provided, channels are inferred from the LIF file metadata.
+
+        Returns:
+            InstrumentMetadata with sizes and channel metadata for all channels.
+        """
+        from .leica import create_instrument_metadata_from_lif
+
+        return create_instrument_metadata_from_lif(lif_path, image_name, channels)
 
 
 @dataclass
 class Metadata:
     """Combined metadata for a microscopy image of a sample.
 
-    Contains both sample-specific metadata and image acquisition metadata.
+    Contains both sample-specific metadata and instrument acquisition metadata.
 
     Attributes:
-        image: Image acquisition metadata including dimensions and channel information.
+        instrument: Instrument acquisition metadata including dimensions and channel information.
         sample: Optional dictionary containing sample-specific metadata.
     """
 
-    image: ImageMetadata
+    instrument: InstrumentMetadata
     sample: dict[str, Any] | None = None
 
 
@@ -156,8 +178,8 @@ class MicroscopyImage:
             MicroscopyImage: A new microscopy image with intensity data and metadata.
         """
         intensities = nd2.imread(nd2_path)
-        image_metadata = ImageMetadata.from_nd2_path(nd2_path, channels)
-        metadata = Metadata(image_metadata, sample_metadata)
+        instrument_metadata = InstrumentMetadata.from_nd2_path(nd2_path, channels)
+        metadata = Metadata(instrument_metadata, sample_metadata)
         return cls(intensities, metadata)
 
     @classmethod
@@ -165,6 +187,7 @@ class MicroscopyImage:
         cls,
         lif_path: Path,
         image_name: str,
+        channels: list[Channel] | None = None,
         sample_metadata: dict[str, Any] | None = None,
     ) -> MicroscopyImage:
         """Create MicroscopyImage from a Leica LIF file.
@@ -172,20 +195,17 @@ class MicroscopyImage:
         Args:
             lif_path: Path to the Leica LIF file.
             image_name: Name of the image within the LIF file to load.
+            channels: Optional list of Channel objects to override automatic channel detection.
+                If not provided, channels are inferred from the LIF file metadata.
             sample_metadata: Optional dictionary containing sample-specific metadata.
 
         Returns:
             MicroscopyImage: A new microscopy image with intensity data and metadata.
-
-        Note:
-            LIF files currently have minimal metadata support. Channel metadata is not
-            parsed, so operations requiring channel information may not work as expected.
         """
         with liffile.LifFile(lif_path) as lif:
             for image in lif.images:
                 if image.name == image_name:
                     intensities = image.asarray()
-                    sizes = image.sizes
                     break
             else:
                 raise ValueError(
@@ -193,9 +213,8 @@ class MicroscopyImage:
                     f"{[image.name for image in lif.images]}"
                 )
 
-        # TODO: create parser for LIF metadata - for now create minimal ImageMetadata
-        image_metadata = ImageMetadata(sizes=sizes, channel_metadata_list=[])
-        metadata = Metadata(image_metadata, sample_metadata)
+        instrument_metadata = InstrumentMetadata.from_lif_path(lif_path, image_name, channels)
+        metadata = Metadata(instrument_metadata, sample_metadata)
         return cls(intensities, metadata)
 
     @property
@@ -206,30 +225,30 @@ class MicroscopyImage:
     @property
     def sizes(self) -> dict[str, int]:
         """Get the dimension sizes dictionary (e.g., {'T': 100, 'C': 2, 'Y': 512, 'X': 512})."""
-        return self.metadata.image.sizes
+        return self.metadata.instrument.sizes
 
     @property
     def dimensions(self) -> DimensionFlags:
         """Get the dimension flags indicating which dimensions are present."""
-        return self.metadata.image.dimensions
+        return self.metadata.instrument.dimensions
 
     @property
     def channels(self) -> list[Channel]:
         """Get the list of channels in this image."""
         return [
             channel_metadata.channel
-            for channel_metadata in self.metadata.image.channel_metadata_list
+            for channel_metadata in self.metadata.instrument.channel_metadata_list
         ]
 
     @property
     def channel_axis(self) -> int | None:
         """Get the axis index for the channel dimension, or None if single channel."""
-        return self.metadata.image.channel_axis
+        return self.metadata.instrument.channel_axis
 
     @property
     def num_channels(self) -> int:
         """Get the number of channels in this image."""
-        return len(self.metadata.image.channel_metadata_list)
+        return len(self.metadata.instrument.channel_metadata_list)
 
     def get_intensities_from_channel(self, channel: Channel) -> UInt16Array:
         """Extract intensity data for a specific channel.
@@ -251,18 +270,20 @@ class MicroscopyImage:
         Raises:
             ValueError: If the specified channel is not in this image or no metadata available.
         """
-        if channel not in self.channels:
+        # Find matching channel
+        channel_names = [channel.name for channel in self.channels]
+        if channel.name not in channel_names:
             raise ValueError(
                 f"Channel '{channel.name}' not found in image. Available channels: "
-                f"{[channel.name for channel in self.channels]}"
+                f"{[ch.name for ch in self.channels]}"
             )
 
         # Single channel - return all data (may include T or Z dimensions)
         if self.num_channels == 1:
-            return self.intensities.copy()
+            return self.intensities
 
         # Multi-channel - extract the specific channel using channel_axis
-        channel_index = self.channels.index(channel)
+        channel_index = channel_names.index(channel.name)
         if self.channel_axis is None:
             raise ValueError("Channel axis not found in metadata")
 
@@ -270,7 +291,7 @@ class MicroscopyImage:
         slices: list[slice | int] = [slice(None)] * len(self.intensities.shape)
         slices[self.channel_axis] = channel_index
 
-        return self.intensities[tuple(slices)].copy()
+        return self.intensities[tuple(slices)]
 
     def apply_pipeline(
         self,

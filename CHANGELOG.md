@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-02-02
+
+### Changed
+- Cell property conversions now include explicit unit suffixes (e.g., `area_um2`, `perimeter_um`, `major_axis_length_um`)
+- Renamed centroid properties for clarity:
+  - `centroid-0` → `centroid_y` (pixel coordinates)
+  - `centroid-1` → `centroid_x` (pixel coordinates)
+- Centroid properties are no longer converted to physical units and remain as pixel coordinates
+- Renamed channel intensity properties so that all cell properties are snake_case:
+  - `intensity_min_FITC` → `intensity_min_fitc`
+
+### Fixed
+- Cell outline coordinate format bug: outlines are now consistently returned in (y, x) format for both cellpose and skimage extractors
+- Cell property access now raises an error when attempting to access properties with no cells present
+
+## [0.2.4] - 2026-01-30
+
+### Added
+- New `apply_threshold()` image operation for binarizing images
+- `preserve_dtype` parameter to Pipeline classes for more flexible control of managing data types during processing
+
+### Changed
+- Refactored typing module:
+  - Added `UbyteArray` as a type of `ScalarArray`
+  - Renamed `FloatArray` to `Float64Array` for clarity
+
+## [0.2.3] - 2026-01-22
+
+### Added
+- New `microplate.py` module for managing multiwell plate layouts:
+  - `Well` class: Represents individual wells with ID normalization (e.g., "a1" → "A01"), sample tracking, and custom properties
+  - `MicroplateLayout` class: Manages complete plate layouts with features:
+    - Load layouts from CSV files with `from_csv()`
+    - Display plate layouts as formatted grid tables with `display()`
+
+### Changed
+- Refactored `masks.py` architecture for improved performance and maintainability:
+  - Refactored `MaskProcessor` class into standalone `_process_mask()` function
+  - Updated `DEFAULT_CELL_PROPERTY_NAMES` to include circularity and volume by default
+- Made cellpose and modal optional dependencies to reduce installation size:
+  - Install with `uv pip install arcadia-microscopy-tools[segmentation]` for cellpose support
+  - Install with `uv pip install arcadia-microscopy-tools[all]` for all optional dependencies
+- Moved pytest from main dependencies to dev group
+- Consolidated all dev tools into single `dev` dependency group
+
+### Fixed
+- Coordinate format inconsistency in outline extractors: both cellpose and skimage now return outlines in (y, x) format
+- `isinstance` check in `SegmentationMask` now accepts `Mapping` type instead of just `dict` to match type annotation
+- Empty outline arrays now properly shaped as (0, 2) for consistency
+
 ## [0.2.2] - 2026-01-08
 
 ### Added
