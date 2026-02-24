@@ -420,7 +420,7 @@ wheels = [
 
 [[package]]
 name = "cellpose"
-version = "4.0.6"
+version = "4.0.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastremap" },
@@ -437,9 +437,9 @@ dependencies = [
     { name = "torchvision" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/56/b7/ea43df845a6ffe0b5de8ffed7420498057589d3cdada92858bf9a17e5d38/cellpose-4.0.6.tar.gz", hash = "sha256:df12786f6e58118e7ab76e8857c3167567601f48ea852d316a36402104e27273", size = 4249238, upload-time = "2025-07-02T01:48:05.784Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/85/86d219ac05613c2f6297f143ffb5e6e417fad3599a318c831e3e3b2cbb16/cellpose-4.0.8.tar.gz", hash = "sha256:04ddf3b508b409650aa1d94d14f4c5f75c4cb5eb8e975c1bbee29a94c97d16d5", size = 4250987, upload-time = "2025-12-04T04:06:15.221Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ef/3a/26159bc4e5cc8e1cd7dae3ee95e9ef2d4178835157b4cba1881cca87a8cc/cellpose-4.0.6-py3-none-any.whl", hash = "sha256:bf79e98261d7c6a9bdbd9494283125cc4ac930f2ffa6d86c147f4b8fcb6ac9e8", size = 212254, upload-time = "2025-07-02T01:48:04.119Z" },
+    { url = "https://files.pythonhosted.org/packages/32/9a/52f7468dfb2d0a40500dd67a6bf6ba343b396a11d323e5c1bf48fd5a9596/cellpose-4.0.8-py3-none-any.whl", hash = "sha256:7468e03dea4762eb0be997273141a134a2400ec8a6c72a96ef7ed69aeb3e478f", size = 212158, upload-time = "2025-12-04T04:06:13.653Z" },
 ]
 
 [[package]]
