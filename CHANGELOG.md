@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-23
+
+### Added
+- New `leica.py` module with metadata parsing for Leica LIF files:
+  - `_LeicaMetadataParser` class for extracting channel and acquisition metadata
+  - `list_image_names()` utility to inspect images within a LIF file
+  - `calculate_raman_shift()` and `calculate_antistokes_wavelength()` helpers for CRS workflows
+  - Automatic channel inference for CRS modalities (E-CARS, F-CARS, E-SHG, F-SHG, SRS) and widefield fluorescence
+- `MicroscopyImage.from_lif_path()` now populates `InstrumentMetadata` (previously a stub with no channel metadata)
+- Optional `channels` parameter on `MicroscopyImage.from_lif_path()` to override automatic channel detection
+- New direction-aware CRS channels: `E-CARS`, `F-CARS`, `E-SHG`, `F-SHG` (replacing the generic `CARS`)
+- New `MeasuredDimensions` dataclass for storing actual per-frame coordinate arrays (z positions, timestamps, wavelengths)
+
+### Changed (Breaking)
+- Renamed `ImageMetadata` → `InstrumentMetadata`
+- Renamed `PhysicalDimensions` → `NominalDimensions`; fields renamed for consistency (`height_px`/`width_px` → `x_size_px`/`y_size_px`, `pixel_size_um` → `xy_step_um`, etc.)
+- Renamed `MicroscopeSettings` → `MicroscopeConfig`
+- Renamed `Metadata.image` → `Metadata.instrument`
+- Renamed `exposure_time_ms` → `exposure_time_s` in `AcquisitionSettings`
+- Downstream field rename: `xy_pixel_size_um` → `xy_step_um`
+- Replaced generic `CARS` channel with `E-CARS` and `F-CARS`
+- `excitation_nm` and `emission_nm` on `Channel` widened from `int` to `float`
+- Added `pydantic` as a core dependency
+
+### Fixed
+- `get_intensities_from_channel()` now matches channels by name rather than object identity, avoiding mismatches when channels are reconstructed
+
 ## [0.2.5] - 2026-02-02
 
 ### Changed
