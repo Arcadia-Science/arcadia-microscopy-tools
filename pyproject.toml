@@ -22,14 +22,14 @@ dependencies = [
 
 [project.optional-dependencies]
 segmentation = [
-    "cellpose>=4.0.6",
+    "cellpose>=4.0.8",
     "torch>=2.7.1",
 ]
 compute = [
     "modal",
 ]
 all = [
-    "cellpose>=4.0.6",
+    "cellpose>=4.0.8",
     "modal",
 ]
 
