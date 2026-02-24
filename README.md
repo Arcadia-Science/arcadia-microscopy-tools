@@ -39,7 +39,7 @@ pip install "arcadia-microscopy-tools[all]"
 
 ### Loading microscopy images
 
-Load ND2 files from Nikon microscopes:
+Load an ND2 file from a Nikon microscope:
 
 ```python
 from pathlib import Path
@@ -48,15 +48,9 @@ from arcadia_microscopy_tools.microscopy import MicroscopyImage
 # Load a Nikon ND2 file
 example_nd2_path = Path("src/arcadia_microscopy_tools/tests/data/example-multichannel.nd2")
 image = MicroscopyImage.from_nd2_path(example_nd2_path)
-
-# Access basic properties
-image.shape          # Array shape: (4, 256, 256)
-image.sizes          # Dimension mapping: {'C': 4, 'Y': 256, 'X': 256}
-image.channels       # List of Channel objects: [Channel(name='BRIGHTFIELD', ...), ...]
-image.num_channels   # Number of channels: 4
 ```
 
-Load LIF files from Leica microscopes:
+Load a LIF file from a Leica microscopes:
 
 ```python
 from arcadia_microscopy_tools.leica import list_image_names
@@ -67,6 +61,19 @@ print(list_image_names(lif_path))  # e.g. ['Series001', 'Series002']
 
 # Load a specific image by name
 image = MicroscopyImage.from_lif_path(lif_path, image_name="Series001")
+```
+
+`MicroscopyImage` objects work the same way across both instrument formats:
+
+```python
+# Access basic properties
+image.shape          # Array shape: (4, 256, 256)
+image.sizes          # Dimension mapping: {'C': 4, 'Y': 256, 'X': 256}
+image.channels       # List of Channel objects: [Channel(name='BRIGHTFIELD', ...), ...]
+image.num_channels   # Number of channels: 4
+image.dimensions     # {Description}: <DimensionFlags.MULTICHANNEL: 1>
+image.metadata       # {Description}
+image.intensities    # {Description}
 ```
 
 ### Working with channels
