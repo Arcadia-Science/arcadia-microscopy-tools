@@ -110,8 +110,8 @@ class SegmentationMask:
                 {DAPI: array, FITC: array}
         remove_edge_cells: Whether to remove cells touching image borders. Defaults to True.
         outline_extractor: Outline extraction method ("cellpose" or "skimage").
-            Defaults to "cellpose". In practice, cellpose is ~2x faster but skimage handles
-            vertically oriented cell outlines better.
+            Defaults to "cellpose". In practice, cellpose is ~2x faster but skimage has been found
+            to handle vertical contours better.
         property_names: List of property names to compute. If None, uses
             DEFAULT_CELL_PROPERTY_NAMES.
         intensity_property_names: List of intensity property names to compute.
