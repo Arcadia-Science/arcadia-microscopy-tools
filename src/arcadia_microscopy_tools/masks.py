@@ -282,6 +282,68 @@ class SegmentationMask:
         xc = self.cell_properties["centroid_x"]
         return np.array([yc, xc], dtype=float).T
 
+    def filter(
+        self,
+        property_name: str,
+        min_value: float | None = None,
+        max_value: float | None = None,
+    ) -> SegmentationMask:
+        """Return a new SegmentationMask with cells removed based on a property threshold.
+
+        Args:
+            property_name: Name of the property to filter on. Must be a key in cell_properties.
+            min_value: Minimum value (inclusive). Cells with values below this are removed.
+            max_value: Maximum value (inclusive). Cells with values above this are removed.
+
+        Returns:
+            A new SegmentationMask containing only cells that pass the filter.
+
+        Raises:
+            ValueError: If neither min_value nor max_value is provided.
+            ValueError: If property_name is not found in cell_properties.
+            ValueError: If no cells remain after filtering.
+        """
+        if min_value is None and max_value is None:
+            raise ValueError("At least one of min_value or max_value must be provided.")
+
+        if property_name not in self.cell_properties:
+            raise ValueError(
+                f"Property '{property_name}' not found. "
+                f"Available properties: {list(self.cell_properties.keys())}"
+            )
+
+        values = self.cell_properties[property_name]
+        # Labels are consecutive 1..num_cells after _process_mask
+        labels = np.arange(1, self.num_cells + 1)
+
+        keep = np.ones(len(labels), dtype=bool)
+        if min_value is not None:
+            keep &= values >= min_value
+        if max_value is not None:
+            keep &= values <= max_value
+
+        labels_to_keep = labels[keep]
+        new_label_image = np.where(
+            np.isin(self.label_image, labels_to_keep),
+            self.label_image,
+            0,
+        ).astype(np.int64)
+
+        if new_label_image.max() == 0:
+            raise ValueError(
+                f"No cells remain after filtering '{property_name}' "
+                f"with min={min_value}, max={max_value}."
+            )
+
+        return SegmentationMask(
+            mask_image=new_label_image,
+            intensity_image_dict=self.intensity_image_dict,
+            remove_edge_cells=False,
+            outline_extractor=self.outline_extractor,
+            property_names=self.property_names,
+            intensity_property_names=self.intensity_property_names,
+        )
+
     def convert_properties_to_microns(
         self,
         pixel_size_um: float,
