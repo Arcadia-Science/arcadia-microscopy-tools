@@ -3,7 +3,7 @@ import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import Literal
+from typing import ClassVar, Literal
 
 import numpy as np
 import skimage as ski
@@ -47,14 +47,22 @@ def _process_mask(
 
     Returns:
         Processed label image with consecutive labels starting from 1.
+
+    Raises:
+        ValueError: If no cells remain after processing (e.g. all cells were on the border).
     """
     label_image = mask_image
     if remove_edge_cells:
         label_image = ski.segmentation.clear_border(label_image)
+        if label_image.max() == 0:
+            raise ValueError(
+                "No cells remain after removing edge cells. Try setting remove_edge_cells=False."
+            )
 
-    # Ensure consecutive labels
-    label_image = ski.measure.label(label_image).astype(np.int64)  # type: ignore
-    return label_image
+    if label_image.dtype == bool:
+        return ski.measure.label(label_image).astype(np.int64)  # type: ignore
+    # Relabel cells in case some were removed by edge filtering
+    return ski.segmentation.relabel_sequential(label_image)[0].astype(np.int64)
 
 
 def _extract_outlines_cellpose(label_image: Int64Array) -> list[Float64Array]:
@@ -81,19 +89,20 @@ def _extract_outlines_skimage(label_image: Int64Array) -> list[Float64Array]:
         List of arrays, one per cell, containing outline coordinates in (y, x) format.
         Empty arrays are included for cells where no contours are found.
     """
-    # Get unique cell IDs (excluding background)
-    unique_labels = np.unique(label_image)
-    unique_labels = unique_labels[unique_labels > 0]
-
+    regions = ski.measure.regionprops(label_image)
     outlines = []
-    for cell_id in unique_labels:
-        cell_mask = (label_image == cell_id).astype(np.uint8)
-        contours = ski.measure.find_contours(cell_mask, level=0.5)
+    for region in regions:
+        # Crop to the cell's bounding box to avoid allocating a full-image mask per cell.
+        minr, minc, maxr, maxc = region.bbox
+        crop = (label_image[minr:maxr, minc:maxc] == region.label).astype(np.uint8)
+        contours = ski.measure.find_contours(crop, level=0.5)
         if contours:
             main_contour = max(contours, key=len)
+            # Shift contour coordinates back to full-image (row, col) space.
+            main_contour += np.array([minr, minc])
             outlines.append(main_contour)
         else:
-            # Include empty array to maintain alignment with cell labels
+            # Include empty array to maintain alignment with cell labels.
             outlines.append(np.array([]).reshape(0, 2))
     return outlines
 
@@ -125,6 +134,27 @@ class SegmentationMask:
     property_names: list[str] | None = field(default=None)
     intensity_property_names: list[str] | None = field(default=None)
 
+    # Core fields that must not be mutated after initialisation. cached_property
+    # writes directly to instance.__dict__, bypassing __setattr__, so it is unaffected.
+    _IMMUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "mask_image",
+            "intensity_image_dict",
+            "remove_edge_cells",
+            "outline_extractor",
+            "property_names",
+            "intensity_property_names",
+        }
+    )
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if getattr(self, "_initialized", False) and name in self._IMMUTABLE_FIELDS:
+            raise AttributeError(
+                f"Cannot modify '{name}' after SegmentationMask is initialized. "
+                "Create a new instance instead."
+            )
+        super().__setattr__(name, value)
+
     def __post_init__(self):
         """Validate inputs and set defaults."""
         # Validate mask_image
@@ -150,6 +180,10 @@ class SegmentationMask:
                     raise ValueError(
                         f"Intensity image for '{channel.name}' must have same shape as mask_image"
                     )
+            # Shallow-copy the dict so that channel key changes in one instance
+            # (e.g. after filter()) do not affect another. The underlying numpy
+            # arrays are shared by reference; they are not copied.
+            self.intensity_image_dict = dict(self.intensity_image_dict)
 
         # Set default property names if none provided
         if self.property_names is None:
@@ -161,6 +195,9 @@ class SegmentationMask:
                 self.intensity_property_names = DEFAULT_INTENSITY_PROPERTY_NAMES.copy()
             else:
                 self.intensity_property_names = []
+
+        # Lock core fields against post-init mutation.
+        object.__setattr__(self, "_initialized", True)
 
     @cached_property
     def label_image(self) -> Int64Array:
@@ -187,17 +224,13 @@ class SegmentationMask:
 
         Returns:
             List of arrays, one per cell, containing outline coordinates in (y, x) format.
-
-        Raises:
-            ValueError: If no cells are found in the mask.
+            The list is ordered by label: index 0 corresponds to label 1, index 1 to label 2,
+            and so on. An empty (0, 2) array is included for any cell with no detectable contour.
 
         Note:
             The cellpose method is ~2x faster in general but skimage handles
             vertically oriented cells/outlines better.
         """
-        if self.num_cells == 0:
-            raise ValueError("No cells found in mask. Cannot extract cell outlines.")
-
         if self.outline_extractor == "cellpose":
             return _extract_outlines_cellpose(self.label_image)
         else:  # must be "skimage" due to Literal type
@@ -210,33 +243,62 @@ class SegmentationMask:
         Extracts both morphological properties (area, perimeter, etc.) and intensity-based
         properties (mean, max, min intensity) for each channel if intensity images are provided.
 
-        For multichannel intensity images, property names are suffixed with the channel name:
-        - DAPI: "intensity_mean_DAPI"
-        - FITC: "intensity_max_FITC"
+        For multichannel intensity images, property names are suffixed with the lowercased
+        channel name:
+        - DAPI: "intensity_mean_dapi"
+        - FITC: "intensity_max_fitc"
 
         Returns:
             Dictionary mapping property names to arrays of values (one per cell).
-
-        Raises:
-            ValueError: If no cells are found in the mask.
         """
-        if self.num_cells == 0:
-            raise ValueError("No cells found in mask. Cannot extract cell properties.")
+        assert self.property_names is not None  # type checker blind to __post_init__
 
-        # Extract morphological properties (no intensity image needed)
-        # Only compute extra properties if explicitly requested
-        extra_props = []
-        if self.property_names and "circularity" in self.property_names:
-            extra_props.append(circularity)
-        if self.property_names and "volume" in self.property_names:
-            extra_props.append(volume)
+        # circularity and volume are derived quantities not known to skimage.
+        # Compute them post-hoc from already-fetched scalar arrays to avoid
+        # calling regionprops a second time per cell inside extra_properties callbacks.
+        needs_circularity = "circularity" in self.property_names
+        needs_volume = "volume" in self.property_names
+
+        # Build the skimage-compatible property list (strip derived names).
+        skimage_props = [p for p in self.property_names if p not in ("circularity", "volume")]
+
+        # Temporarily add any base properties needed for the derived computations
+        # if the user did not explicitly request them.
+        added_props: set[str] = set()
+        for dep in ["area", "perimeter"] if needs_circularity else []:
+            if dep not in skimage_props:
+                skimage_props.append(dep)
+                added_props.add(dep)
+        for dep in ["axis_major_length", "axis_minor_length"] if needs_volume else []:
+            if dep not in skimage_props:
+                skimage_props.append(dep)
+                added_props.add(dep)
 
         # Compute cell properties
         properties = ski.measure.regionprops_table(
             self.label_image,
-            properties=self.property_names,
-            extra_properties=extra_props,
+            properties=skimage_props,
         )
+
+        # Derive circularity: (4π·area) / perimeter², clamped to 0 when perimeter == 0.
+        if needs_circularity:
+            area = properties["area"]
+            perimeter = properties["perimeter"]
+            properties["circularity"] = np.where(
+                perimeter > 0, (4.0 * np.pi * area) / (perimeter**2), 0.0
+            )
+
+        # Derive volume: prolate spheroid model (4/3)π·a·b² from 2D semi-axes.
+        # This is an estimate that assumes cells are roughly ellipsoidal; treat
+        # it as a relative shape indicator rather than an absolute measurement.
+        if needs_volume:
+            a = properties["axis_major_length"] / 2.0
+            b = properties["axis_minor_length"] / 2.0
+            properties["volume"] = np.where((a > 0) & (b > 0), (4.0 / 3.0) * np.pi * a * b * b, 0.0)
+
+        # Remove base properties that were added solely to support derived computations.
+        for prop in added_props:
+            properties.pop(prop, None)
 
         if "centroid-0" in properties:
             properties["centroid_y"] = properties.pop("centroid-0")
@@ -265,11 +327,11 @@ class SegmentationMask:
             Array of shape (num_cells, 2) with centroid coordinates.
             Each row is [y_coordinate, x_coordinate] for one cell.
             Returns empty (0, 2) array with warning if "centroid" not in property_names.
-
-        Raises:
-            ValueError: If no cells are found in the mask.
         """
-        if self.property_names and "centroid" not in self.property_names:
+        if self.property_names is None:
+            raise ValueError("property_names cannot be None.")
+
+        if "centroid" not in self.property_names:
             warnings.warn(
                 "Centroid property not available. Include 'centroid' in property_names "
                 "to get centroid coordinates. Returning empty array.",
@@ -303,6 +365,9 @@ class SegmentationMask:
             ValueError: If property_name is not found in cell_properties.
             ValueError: If no cells remain after filtering.
         """
+        assert self.property_names is not None  # type checker blind to __post_init__
+        assert self.intensity_property_names is not None  # type checker blind to __post_init__
+
         if min_value is None and max_value is None:
             raise ValueError("At least one of min_value or max_value must be provided.")
 
@@ -340,8 +405,8 @@ class SegmentationMask:
             intensity_image_dict=self.intensity_image_dict,
             remove_edge_cells=False,
             outline_extractor=self.outline_extractor,
-            property_names=self.property_names,
-            intensity_property_names=self.intensity_property_names,
+            property_names=list(self.property_names),
+            intensity_property_names=list(self.intensity_property_names),
         )
 
     def convert_properties_to_microns(
@@ -392,63 +457,3 @@ class SegmentationMask:
                 converted[prop_name] = prop_values
 
         return converted
-
-
-def circularity(region_mask: BoolArray) -> float:
-    """Calculate the circularity of a cell region.
-
-    Circularity is a shape metric that quantifies how close a shape is to a perfect circle.
-    It is computed as (4π * area) / perimeter², ranging from 0 to 1, where 1 represents
-    a perfect circle and lower values indicate more elongated or irregular shapes.
-
-    Args:
-        region_mask: Boolean mask of the cell region.
-
-    Returns:
-        Circularity value between 0 and 1. Returns 0 if perimeter is zero.
-    """
-    # regionprops expects a labeled image, so convert the mask (0/1)
-    labeled_mask = region_mask.astype(np.int64)
-
-    # Compute standard region properties on this mask
-    props = ski.measure.regionprops(labeled_mask)[0]
-    area = float(props.area)
-    perimeter = float(props.perimeter)
-
-    if perimeter == 0.0:
-        return 0.0
-
-    return (4.0 * np.pi * area) / (perimeter**2)
-
-
-def volume(region_mask: BoolArray) -> float:
-    """Estimate the volume of a cell region.
-
-    Volume is estimated by fitting an ellipse to the cell region and treating it as
-    a prolate spheroid (ellipsoid of revolution). The ellipsoid is formed by rotating
-    the fitted ellipse around its major axis, with volume = (4/3)π * a * b^2, where
-    a is the semi-major axis and b is the semi-minor axis.
-
-    Args:
-        region_mask: Boolean mask of the cell region.
-
-    Returns:
-        Estimated volume in cubic pixels. Returns 0 if axis lengths cannot be computed.
-    """
-    # regionprops expects a labeled image, so convert the mask (0/1)
-    labeled_mask = region_mask.astype(np.int64)
-
-    # Compute standard region properties on this mask
-    props = ski.measure.regionprops(labeled_mask)[0]
-    major_axis = float(props.axis_major_length)
-    minor_axis = float(props.axis_minor_length)
-
-    if major_axis == 0.0 or minor_axis == 0.0:
-        return 0.0
-
-    # Convert to semi-axes (regionprops returns full lengths)
-    semi_major = major_axis / 2.0
-    semi_minor = minor_axis / 2.0
-
-    # Volume of prolate spheroid: (4/3) * π * a * b * b
-    return (4.0 / 3.0) * np.pi * semi_major * semi_minor * semi_minor
