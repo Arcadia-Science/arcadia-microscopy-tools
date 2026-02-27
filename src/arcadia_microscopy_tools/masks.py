@@ -139,6 +139,29 @@ class SegmentationMask:
     # Accepts None at construction time; always a list[str] after __post_init__.
     intensity_property_names: list[str] | None = field(default=None)
 
+    # Core fields that must not be mutated after initialisation. cached_property
+    # writes directly to instance.__dict__, bypassing __setattr__, so it is unaffected.
+    _IMMUTABLE_FIELDS: frozenset[str] = field(
+        default=frozenset({
+            "mask_image",
+            "intensity_image_dict",
+            "remove_edge_cells",
+            "outline_extractor",
+            "property_names",
+            "intensity_property_names",
+        }),
+        init=False,
+        repr=False,
+    )
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if getattr(self, "_initialized", False) and name in self._IMMUTABLE_FIELDS:
+            raise AttributeError(
+                f"Cannot modify '{name}' after SegmentationMask is initialized. "
+                "Create a new instance instead."
+            )
+        super().__setattr__(name, value)
+
     def __post_init__(self):
         """Validate inputs and set defaults."""
         # Validate mask_image
@@ -164,6 +187,10 @@ class SegmentationMask:
                     raise ValueError(
                         f"Intensity image for '{channel.name}' must have same shape as mask_image"
                     )
+            # Shallow-copy the dict so that channel key changes in one instance
+            # (e.g. after filter()) do not affect another. The underlying numpy
+            # arrays are shared by reference; they are not copied.
+            self.intensity_image_dict = dict(self.intensity_image_dict)
 
         # Set default property names if none provided
         if self.property_names is None:
@@ -175,6 +202,9 @@ class SegmentationMask:
                 self.intensity_property_names = DEFAULT_INTENSITY_PROPERTY_NAMES.copy()
             else:
                 self.intensity_property_names = []
+
+        # Lock core fields against post-init mutation.
+        object.__setattr__(self, "_initialized", True)
 
     @cached_property
     def label_image(self) -> Int64Array:
