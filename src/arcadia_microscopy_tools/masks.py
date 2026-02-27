@@ -71,7 +71,7 @@ def _process_mask(
         # consecutively starting from 1, preserving cell identity.
         # relabel_sequential is used rather than ski.measure.label so that cells
         # whose pixels happen to be non-contiguous are not silently split.
-        label_image, _, _ = ski.segmentation.relabel_sequential(label_image)
+        label_image = ski.segmentation.relabel_sequential(label_image)[0]
     return label_image.astype(np.int64)
 
 
