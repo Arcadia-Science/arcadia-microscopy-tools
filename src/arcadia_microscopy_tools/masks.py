@@ -47,10 +47,18 @@ def _process_mask(
 
     Returns:
         Processed label image with consecutive labels starting from 1.
+
+    Raises:
+        ValueError: If no cells remain after processing (e.g. all cells were on the border).
     """
     label_image = mask_image
     if remove_edge_cells:
         label_image = ski.segmentation.clear_border(label_image)
+        if label_image.max() == 0:
+            raise ValueError(
+                "No cells remain after removing edge cells. "
+                "Try setting remove_edge_cells=False."
+            )
 
     # Renumber existing labels to be consecutive starting from 1, preserving
     # cell identity. relabel_sequential is used rather than ski.measure.label
@@ -193,16 +201,10 @@ class SegmentationMask:
         Returns:
             List of arrays, one per cell, containing outline coordinates in (y, x) format.
 
-        Raises:
-            ValueError: If no cells are found in the mask.
-
         Note:
             The cellpose method is ~2x faster in general but skimage handles
             vertically oriented cells/outlines better.
         """
-        if self.num_cells == 0:
-            raise ValueError("No cells found in mask. Cannot extract cell outlines.")
-
         if self.outline_extractor == "cellpose":
             return _extract_outlines_cellpose(self.label_image)
         else:  # must be "skimage" due to Literal type
@@ -221,13 +223,7 @@ class SegmentationMask:
 
         Returns:
             Dictionary mapping property names to arrays of values (one per cell).
-
-        Raises:
-            ValueError: If no cells are found in the mask.
         """
-        if self.num_cells == 0:
-            raise ValueError("No cells found in mask. Cannot extract cell properties.")
-
         # Extract morphological properties (no intensity image needed)
         # Only compute extra properties if explicitly requested
         extra_props = []
