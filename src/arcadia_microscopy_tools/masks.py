@@ -224,20 +224,54 @@ class SegmentationMask:
         Returns:
             Dictionary mapping property names to arrays of values (one per cell).
         """
-        # Extract morphological properties (no intensity image needed)
-        # Only compute extra properties if explicitly requested
-        extra_props = []
-        if self.property_names and "circularity" in self.property_names:
-            extra_props.append(circularity)
-        if self.property_names and "volume" in self.property_names:
-            extra_props.append(volume)
+        assert self.property_names is not None  # guaranteed by __post_init__
+
+        # circularity and volume are derived quantities not known to skimage.
+        # Compute them post-hoc from already-fetched scalar arrays to avoid
+        # calling regionprops a second time per cell inside extra_properties callbacks.
+        needs_circularity = "circularity" in self.property_names
+        needs_volume = "volume" in self.property_names
+
+        # Build the skimage-compatible property list (strip derived names).
+        skimage_props = [p for p in self.property_names if p not in ("circularity", "volume")]
+
+        # Temporarily add any base properties needed for the derived computations
+        # if the user did not explicitly request them.
+        added_props: set[str] = set()
+        for dep in (["area", "perimeter"] if needs_circularity else []):
+            if dep not in skimage_props:
+                skimage_props.append(dep)
+                added_props.add(dep)
+        for dep in (["axis_major_length", "axis_minor_length"] if needs_volume else []):
+            if dep not in skimage_props:
+                skimage_props.append(dep)
+                added_props.add(dep)
 
         # Compute cell properties
         properties = ski.measure.regionprops_table(
             self.label_image,
-            properties=self.property_names,
-            extra_properties=extra_props,
+            properties=skimage_props,
         )
+
+        # Derive circularity: (4π·area) / perimeter², clamped to 0 when perimeter == 0.
+        if needs_circularity:
+            area = properties["area"]
+            perimeter = properties["perimeter"]
+            properties["circularity"] = np.where(
+                perimeter > 0, (4.0 * np.pi * area) / (perimeter**2), 0.0
+            )
+
+        # Derive volume: prolate spheroid (4/3)π·a·b² from semi-axes.
+        if needs_volume:
+            a = properties["axis_major_length"] / 2.0
+            b = properties["axis_minor_length"] / 2.0
+            properties["volume"] = np.where(
+                (a > 0) & (b > 0), (4.0 / 3.0) * np.pi * a * b * b, 0.0
+            )
+
+        # Remove base properties that were added solely to support derived computations.
+        for prop in added_props:
+            properties.pop(prop, None)
 
         if "centroid-0" in properties:
             properties["centroid_y"] = properties.pop("centroid-0")
@@ -396,61 +430,3 @@ class SegmentationMask:
         return converted
 
 
-def circularity(region_mask: BoolArray) -> float:
-    """Calculate the circularity of a cell region.
-
-    Circularity is a shape metric that quantifies how close a shape is to a perfect circle.
-    It is computed as (4π * area) / perimeter², ranging from 0 to 1, where 1 represents
-    a perfect circle and lower values indicate more elongated or irregular shapes.
-
-    Args:
-        region_mask: Boolean mask of the cell region.
-
-    Returns:
-        Circularity value between 0 and 1. Returns 0 if perimeter is zero.
-    """
-    # regionprops expects a labeled image, so convert the mask (0/1)
-    labeled_mask = region_mask.astype(np.int64)
-
-    # Compute standard region properties on this mask
-    props = ski.measure.regionprops(labeled_mask)[0]
-    area = float(props.area)
-    perimeter = float(props.perimeter)
-
-    if perimeter == 0.0:
-        return 0.0
-
-    return (4.0 * np.pi * area) / (perimeter**2)
-
-
-def volume(region_mask: BoolArray) -> float:
-    """Estimate the volume of a cell region.
-
-    Volume is estimated by fitting an ellipse to the cell region and treating it as
-    a prolate spheroid (ellipsoid of revolution). The ellipsoid is formed by rotating
-    the fitted ellipse around its major axis, with volume = (4/3)π * a * b^2, where
-    a is the semi-major axis and b is the semi-minor axis.
-
-    Args:
-        region_mask: Boolean mask of the cell region.
-
-    Returns:
-        Estimated volume in cubic pixels. Returns 0 if axis lengths cannot be computed.
-    """
-    # regionprops expects a labeled image, so convert the mask (0/1)
-    labeled_mask = region_mask.astype(np.int64)
-
-    # Compute standard region properties on this mask
-    props = ski.measure.regionprops(labeled_mask)[0]
-    major_axis = float(props.axis_major_length)
-    minor_axis = float(props.axis_minor_length)
-
-    if major_axis == 0.0 or minor_axis == 0.0:
-        return 0.0
-
-    # Convert to semi-axes (regionprops returns full lengths)
-    semi_major = major_axis / 2.0
-    semi_minor = minor_axis / 2.0
-
-    # Volume of prolate spheroid: (4/3) * π * a * b * b
-    return (4.0 / 3.0) * np.pi * semi_major * semi_minor * semi_minor
