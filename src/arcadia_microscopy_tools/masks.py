@@ -15,7 +15,6 @@ from .typing import BoolArray, Float64Array, Int64Array, ScalarArray, UInt16Arra
 DEFAULT_CELL_PROPERTY_NAMES = [
     "label",
     "centroid",
-    "volume",
     "area",
     "area_convex",
     "perimeter",
@@ -26,6 +25,9 @@ DEFAULT_CELL_PROPERTY_NAMES = [
     "axis_minor_length",
     "orientation",
 ]
+# "volume" is intentionally excluded from defaults. It is a model-derived estimate
+# (prolate spheroid fitted to a 2D mask) rather than a directly measured quantity.
+# Add "volume" to property_names explicitly if you need it.
 
 DEFAULT_INTENSITY_PROPERTY_NAMES = [
     "intensity_mean",
@@ -60,11 +62,16 @@ def _process_mask(
                 "Try setting remove_edge_cells=False."
             )
 
-    # Renumber existing labels to be consecutive starting from 1, preserving
-    # cell identity. relabel_sequential is used rather than ski.measure.label
-    # so that cells whose pixels happen to be non-contiguous are not silently
-    # split into separate labels.
-    label_image, _, _ = ski.segmentation.relabel_sequential(label_image)
+    if label_image.dtype == bool:
+        # Boolean input: cells aren't individually labeled yet, so find connected
+        # components to assign each distinct region its own integer label.
+        label_image = ski.measure.label(label_image)
+    else:
+        # Integer input: cells already have distinct labels. Just renumber them
+        # consecutively starting from 1, preserving cell identity.
+        # relabel_sequential is used rather than ski.measure.label so that cells
+        # whose pixels happen to be non-contiguous are not silently split.
+        label_image, _, _ = ski.segmentation.relabel_sequential(label_image)
     return label_image.astype(np.int64)
 
 
@@ -222,6 +229,11 @@ class SegmentationMask:
 
         Returns:
             Integer count of cells (maximum label value in label_image).
+
+        Note:
+            Relies on the invariant that _process_mask produces consecutive labels 1…N
+            with no gaps, so max label == cell count. This is guaranteed by
+            relabel_sequential.
         """
         return int(self.label_image.max())
 
@@ -231,6 +243,8 @@ class SegmentationMask:
 
         Returns:
             List of arrays, one per cell, containing outline coordinates in (y, x) format.
+            The list is ordered by label: index 0 corresponds to label 1, index 1 to label 2,
+            and so on. An empty (0, 2) array is included for any cell with no detectable contour.
 
         Note:
             The cellpose method is ~2x faster in general but skimage handles
@@ -248,9 +262,10 @@ class SegmentationMask:
         Extracts both morphological properties (area, perimeter, etc.) and intensity-based
         properties (mean, max, min intensity) for each channel if intensity images are provided.
 
-        For multichannel intensity images, property names are suffixed with the channel name:
-        - DAPI: "intensity_mean_DAPI"
-        - FITC: "intensity_max_FITC"
+        For multichannel intensity images, property names are suffixed with the lowercased
+        channel name:
+        - DAPI: "intensity_mean_dapi"
+        - FITC: "intensity_max_fitc"
 
         Returns:
             Dictionary mapping property names to arrays of values (one per cell).
@@ -292,7 +307,9 @@ class SegmentationMask:
                 perimeter > 0, (4.0 * np.pi * area) / (perimeter**2), 0.0
             )
 
-        # Derive volume: prolate spheroid (4/3)π·a·b² from semi-axes.
+        # Derive volume: prolate spheroid model (4/3)π·a·b² from 2D semi-axes.
+        # This is an estimate that assumes cells are roughly ellipsoidal; treat
+        # it as a relative shape indicator rather than an absolute measurement.
         if needs_volume:
             a = properties["axis_major_length"] / 2.0
             b = properties["axis_minor_length"] / 2.0
