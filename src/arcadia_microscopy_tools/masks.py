@@ -122,7 +122,9 @@ class SegmentationMask:
     intensity_image_dict: Mapping[Channel, UInt16Array] | None = None
     remove_edge_cells: bool = True
     outline_extractor: Literal["cellpose", "skimage"] = "cellpose"
+    # Accepts None at construction time; always a list[str] after __post_init__.
     property_names: list[str] | None = field(default=None)
+    # Accepts None at construction time; always a list[str] after __post_init__.
     intensity_property_names: list[str] | None = field(default=None)
 
     def __post_init__(self):
@@ -269,7 +271,8 @@ class SegmentationMask:
         Raises:
             ValueError: If no cells are found in the mask.
         """
-        if self.property_names and "centroid" not in self.property_names:
+        assert self.property_names is not None  # guaranteed by __post_init__
+        if "centroid" not in self.property_names:
             warnings.warn(
                 "Centroid property not available. Include 'centroid' in property_names "
                 "to get centroid coordinates. Returning empty array.",
