@@ -251,8 +251,7 @@ class SegmentationMask:
         Returns:
             Dictionary mapping property names to arrays of values (one per cell).
         """
-        if self.property_names is None:
-            raise ValueError("property_names cannot be None.")
+        assert self.property_names is not None  # type checker blind to __post_init__
 
         # circularity and volume are derived quantities not known to skimage.
         # Compute them post-hoc from already-fetched scalar arrays to avoid
@@ -366,6 +365,9 @@ class SegmentationMask:
             ValueError: If property_name is not found in cell_properties.
             ValueError: If no cells remain after filtering.
         """
+        assert self.property_names is not None  # type checker blind to __post_init__
+        assert self.intensity_property_names is not None  # type checker blind to __post_init__
+
         if min_value is None and max_value is None:
             raise ValueError("At least one of min_value or max_value must be provided.")
 
@@ -398,12 +400,6 @@ class SegmentationMask:
                 f"with min={min_value}, max={max_value}."
             )
 
-        if self.property_names is None:
-            raise ValueError("property_names cannot be None.")
-        if self.intensity_property_names is None:
-            raise ValueError("intensity_property_names cannot be None.")
-
-        # assert self.intensity_property_names is not None  # guaranteed by __post_init__
         return SegmentationMask(
             mask_image=new_label_image,
             intensity_image_dict=self.intensity_image_dict,
