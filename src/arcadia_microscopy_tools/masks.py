@@ -3,7 +3,7 @@ import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import Literal
+from typing import ClassVar, Literal
 
 import numpy as np
 import skimage as ski
@@ -15,6 +15,7 @@ from .typing import BoolArray, Float64Array, Int64Array, ScalarArray, UInt16Arra
 DEFAULT_CELL_PROPERTY_NAMES = [
     "label",
     "centroid",
+    "volume",
     "area",
     "area_convex",
     "perimeter",
@@ -25,9 +26,6 @@ DEFAULT_CELL_PROPERTY_NAMES = [
     "axis_minor_length",
     "orientation",
 ]
-# "volume" is intentionally excluded from defaults. It is a model-derived estimate
-# (prolate spheroid fitted to a 2D mask) rather than a directly measured quantity.
-# Add "volume" to property_names explicitly if you need it.
 
 DEFAULT_INTENSITY_PROPERTY_NAMES = [
     "intensity_mean",
@@ -58,21 +56,13 @@ def _process_mask(
         label_image = ski.segmentation.clear_border(label_image)
         if label_image.max() == 0:
             raise ValueError(
-                "No cells remain after removing edge cells. "
-                "Try setting remove_edge_cells=False."
+                "No cells remain after removing edge cells. Try setting remove_edge_cells=False."
             )
 
     if label_image.dtype == bool:
-        # Boolean input: cells aren't individually labeled yet, so find connected
-        # components to assign each distinct region its own integer label.
-        label_image = ski.measure.label(label_image)
-    else:
-        # Integer input: cells already have distinct labels. Just renumber them
-        # consecutively starting from 1, preserving cell identity.
-        # relabel_sequential is used rather than ski.measure.label so that cells
-        # whose pixels happen to be non-contiguous are not silently split.
-        label_image = ski.segmentation.relabel_sequential(label_image)[0]
-    return label_image.astype(np.int64)
+        return ski.measure.label(label_image).astype(np.int64)  # type: ignore
+    # Relabel cells in case some were removed by edge filtering
+    return ski.segmentation.relabel_sequential(label_image)[0].astype(np.int64)
 
 
 def _extract_outlines_cellpose(label_image: Int64Array) -> list[Float64Array]:
@@ -141,24 +131,20 @@ class SegmentationMask:
     intensity_image_dict: Mapping[Channel, UInt16Array] | None = None
     remove_edge_cells: bool = True
     outline_extractor: Literal["cellpose", "skimage"] = "cellpose"
-    # Accepts None at construction time; always a list[str] after __post_init__.
     property_names: list[str] | None = field(default=None)
-    # Accepts None at construction time; always a list[str] after __post_init__.
     intensity_property_names: list[str] | None = field(default=None)
 
     # Core fields that must not be mutated after initialisation. cached_property
     # writes directly to instance.__dict__, bypassing __setattr__, so it is unaffected.
-    _IMMUTABLE_FIELDS: frozenset[str] = field(
-        default=frozenset({
+    _IMMUTABLE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
             "mask_image",
             "intensity_image_dict",
             "remove_edge_cells",
             "outline_extractor",
             "property_names",
             "intensity_property_names",
-        }),
-        init=False,
-        repr=False,
+        }
     )
 
     def __setattr__(self, name: str, value: object) -> None:
@@ -229,11 +215,6 @@ class SegmentationMask:
 
         Returns:
             Integer count of cells (maximum label value in label_image).
-
-        Note:
-            Relies on the invariant that _process_mask produces consecutive labels 1…N
-            with no gaps, so max label == cell count. This is guaranteed by
-            relabel_sequential.
         """
         return int(self.label_image.max())
 
@@ -270,7 +251,8 @@ class SegmentationMask:
         Returns:
             Dictionary mapping property names to arrays of values (one per cell).
         """
-        assert self.property_names is not None  # guaranteed by __post_init__
+        if self.property_names is None:
+            raise ValueError("property_names cannot be None.")
 
         # circularity and volume are derived quantities not known to skimage.
         # Compute them post-hoc from already-fetched scalar arrays to avoid
@@ -284,11 +266,11 @@ class SegmentationMask:
         # Temporarily add any base properties needed for the derived computations
         # if the user did not explicitly request them.
         added_props: set[str] = set()
-        for dep in (["area", "perimeter"] if needs_circularity else []):
+        for dep in ["area", "perimeter"] if needs_circularity else []:
             if dep not in skimage_props:
                 skimage_props.append(dep)
                 added_props.add(dep)
-        for dep in (["axis_major_length", "axis_minor_length"] if needs_volume else []):
+        for dep in ["axis_major_length", "axis_minor_length"] if needs_volume else []:
             if dep not in skimage_props:
                 skimage_props.append(dep)
                 added_props.add(dep)
@@ -313,9 +295,7 @@ class SegmentationMask:
         if needs_volume:
             a = properties["axis_major_length"] / 2.0
             b = properties["axis_minor_length"] / 2.0
-            properties["volume"] = np.where(
-                (a > 0) & (b > 0), (4.0 / 3.0) * np.pi * a * b * b, 0.0
-            )
+            properties["volume"] = np.where((a > 0) & (b > 0), (4.0 / 3.0) * np.pi * a * b * b, 0.0)
 
         # Remove base properties that were added solely to support derived computations.
         for prop in added_props:
@@ -348,11 +328,10 @@ class SegmentationMask:
             Array of shape (num_cells, 2) with centroid coordinates.
             Each row is [y_coordinate, x_coordinate] for one cell.
             Returns empty (0, 2) array with warning if "centroid" not in property_names.
-
-        Raises:
-            ValueError: If no cells are found in the mask.
         """
-        assert self.property_names is not None  # guaranteed by __post_init__
+        if self.property_names is None:
+            raise ValueError("property_names cannot be None.")
+
         if "centroid" not in self.property_names:
             warnings.warn(
                 "Centroid property not available. Include 'centroid' in property_names "
@@ -419,13 +398,19 @@ class SegmentationMask:
                 f"with min={min_value}, max={max_value}."
             )
 
+        if self.property_names is None:
+            raise ValueError("property_names cannot be None.")
+        if self.intensity_property_names is None:
+            raise ValueError("intensity_property_names cannot be None.")
+
+        # assert self.intensity_property_names is not None  # guaranteed by __post_init__
         return SegmentationMask(
             mask_image=new_label_image,
             intensity_image_dict=self.intensity_image_dict,
             remove_edge_cells=False,
             outline_extractor=self.outline_extractor,
-            property_names=self.property_names,
-            intensity_property_names=self.intensity_property_names,
+            property_names=list(self.property_names),
+            intensity_property_names=list(self.intensity_property_names),
         )
 
     def convert_properties_to_microns(
@@ -476,5 +461,3 @@ class SegmentationMask:
                 converted[prop_name] = prop_values
 
         return converted
-
-
