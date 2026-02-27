@@ -52,9 +52,12 @@ def _process_mask(
     if remove_edge_cells:
         label_image = ski.segmentation.clear_border(label_image)
 
-    # Ensure consecutive labels
-    label_image = ski.measure.label(label_image).astype(np.int64)  # type: ignore
-    return label_image
+    # Renumber existing labels to be consecutive starting from 1, preserving
+    # cell identity. relabel_sequential is used rather than ski.measure.label
+    # so that cells whose pixels happen to be non-contiguous are not silently
+    # split into separate labels.
+    label_image, _, _ = ski.segmentation.relabel_sequential(label_image)
+    return label_image.astype(np.int64)
 
 
 def _extract_outlines_cellpose(label_image: Int64Array) -> list[Float64Array]:
