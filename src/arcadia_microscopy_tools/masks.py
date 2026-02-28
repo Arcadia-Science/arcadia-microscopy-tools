@@ -90,16 +90,24 @@ def _extract_outlines_skimage(label_image: Int64Array) -> list[Float64Array]:
         Empty arrays are included for cells where no contours are found.
     """
     regions = ski.measure.regionprops(label_image)
+    h, w = label_image.shape
     outlines = []
     for region in regions:
-        # Crop to the cell's bounding box to avoid allocating a full-image mask per cell.
+        # Pad the bounding box by 1 pixel (clamped to image bounds) so that
+        # find_contours always sees background pixels on all sides of the cell.
+        # Without padding, bbox is tight and every cell touches the crop edge,
+        # causing find_contours to produce open (clipped) contours.
         minr, minc, maxr, maxc = region.bbox
-        crop = (label_image[minr:maxr, minc:maxc] == region.label).astype(np.uint8)
+        minr_p = max(minr - 1, 0)
+        minc_p = max(minc - 1, 0)
+        maxr_p = min(maxr + 1, h)
+        maxc_p = min(maxc + 1, w)
+        crop = (label_image[minr_p:maxr_p, minc_p:maxc_p] == region.label).astype(np.uint8)
         contours = ski.measure.find_contours(crop, level=0.5)
         if contours:
             main_contour = max(contours, key=len)
             # Shift contour coordinates back to full-image (row, col) space.
-            main_contour += np.array([minr, minc])
+            main_contour += np.array([minr_p, minc_p])
             outlines.append(main_contour)
         else:
             # Include empty array to maintain alignment with cell labels.
