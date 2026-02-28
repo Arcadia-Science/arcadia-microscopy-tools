@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-02-27
+
+### Added
+- `SegmentationMask.filter()` method for subsetting a mask to a specific set of cell labels
+- Test suite for `masks.py` (`test_masks.py`)
+
+### Changed
+- Circularity and volume are now computed as vectorized post-hoc derivations from `regionprops_table` output rather than as `extra_properties` callbacks, reducing redundant traversals
+- `_extract_outlines_skimage` now crops each cell to its bounding box before running `find_contours`, reducing intermediate memory from O(N × H × W) to O(cell bounding box area)
+- `intensity_image_dict` is now shallow-copied in `__post_init__` so mutations in one `SegmentationMask` instance do not affect another
+- Core fields on `SegmentationMask` are now immutable after initialization; post-init assignment raises `AttributeError`
+- Bumped `cellpose` dependency to `>=4.0.8` to avoid a numpy compatibility error
+
+### Fixed
+- `_process_mask` now uses `relabel_sequential` instead of `ski.measure.label` to renumber labels after `clear_border`, preserving cell identity for non-contiguous masks
+- `_process_mask` now raises a descriptive error immediately when `remove_edge_cells=True` leaves no cells, rather than producing a deferred error later
+- Fixed a silent bug in `centroids_yx` where an empty `property_names` list would skip the `UserWarning` and then crash with a raw `KeyError`
+
 ## [0.3.0] - 2026-02-23
 
 ### Added
