@@ -40,7 +40,7 @@ def rescale_by_percentile(
     # Handle empty or constant images
     if intensities.size == 0:
         return np.zeros_like(intensities, dtype=float)
-    if np.min(intensities) == np.max(intensities):
+    if intensities.min() == intensities.max():
         return np.full_like(intensities, out_range[0], dtype=float)
 
     # Calculate percentiles
@@ -198,7 +198,7 @@ def apply_threshold(
     # Handle empty or constant images
     if intensities.size == 0:
         return np.zeros_like(intensities, dtype=bool)
-    if np.min(intensities) == np.max(intensities):
+    if intensities.min() == intensities.max():
         return np.zeros_like(intensities, dtype=bool)
 
     method_lower = method.lower()

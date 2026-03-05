@@ -14,13 +14,13 @@ class ImageOperation:
     Allows for convenient composition of image processing pipelines.
 
     Args:
-        method: The image processing function to wrap.
-        *args: Positional arguments to pass to the method.
-        **kwargs: Keyword arguments to pass to the method.
+        func: The image processing function to wrap.
+        *args: Positional arguments to pass to the function.
+        **kwargs: Keyword arguments to pass to the function.
     """
 
-    def __init__(self, method: Callable, *args, **kwargs):
-        self.method = method
+    def __init__(self, func: Callable, *args, **kwargs):
+        self.method = func
         self.args = args
         self.kwargs = kwargs
 
