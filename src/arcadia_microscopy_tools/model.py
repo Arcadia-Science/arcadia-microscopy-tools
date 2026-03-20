@@ -8,6 +8,7 @@ import torch
 from cellpose.models import CellposeModel
 
 from .typing import Float64Array, Int64Array
+from .utils import get_tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +220,7 @@ class SegmentationModel:
         cellprob_threshold: float | None = None,
         num_iterations: int | None = None,
         batch_size: int | None = None,
+        show_progress: bool = True,
         **cellpose_kwargs: Any,
     ) -> list[Int64Array | None]:
         """Run cell segmentation on multiple images using Cellpose-SAM.
@@ -236,6 +238,8 @@ class SegmentationModel:
                 Applied to all images. See class attributes for details.
             batch_size: GPU batch size. If None, uses default_batch_size.
                 See class attributes for details.
+            show_progress: If True, display a tqdm progress bar during processing.
+                Default is True.
             **cellpose_kwargs: Additional arguments passed to CellposeModel.eval().
                 Full list: https://cellpose.readthedocs.io/en/latest/api.html#id0
 
@@ -258,7 +262,12 @@ class SegmentationModel:
         )
 
         masks = []
-        for i, intensities in enumerate(intensities_batch):
+        iterator = enumerate(intensities_batch)
+        if show_progress:
+            tqdm = get_tqdm()
+            iterator = tqdm(iterator, total=len(intensities_batch), desc="Segmenting")
+
+        for i, intensities in iterator:
             try:
                 mask, *_ = self.cellpose_model.eval(
                     x=intensities, **cellpose_params, **cellpose_kwargs
