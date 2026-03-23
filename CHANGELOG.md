@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-03-23
+
+### Added
+- `InstrumentMetadata` now validates that `sizes` contains required `X` and `Y` dimensions and that the number of `ChannelMetadata` entries matches the channel dimension size
+- `MicroscopyImage` now validates that the `intensities` array shape matches `metadata.instrument.sizes` and warns if the dtype is not `uint16`
+- `get_intensities_from_channel()` and `apply_pipeline()` now accept a channel name string in addition to a `Channel` object
+- `tqdm` progress bar for `SegmentationModel.segment_batch()` via the `show_progress` parameter (default `True`)
+
+### Fixed
+- Fixed type errors in `operations.py` where `np.min`/`np.max` were used instead of array methods
+- Fixed kwarg name collision in `ImageOperation.__init__()` by renaming the `method` parameter to `func`
+
 ## [0.3.1] - 2026-02-27
 
 ### Added
