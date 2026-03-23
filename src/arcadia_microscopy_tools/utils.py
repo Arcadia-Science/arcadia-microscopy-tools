@@ -66,8 +66,7 @@ def parallelized(
 
 
 def get_tqdm():
-    """
-    Returns the appropriate tqdm implementation based on the current environment.
+    """Returns the appropriate tqdm implementation based on the current environment.
 
     Returns:
         The tqdm implementation suitable for the current environment:

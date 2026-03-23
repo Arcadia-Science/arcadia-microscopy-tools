@@ -24,6 +24,7 @@ dependencies = [
 segmentation = [
     "cellpose>=4.0.8",
     "torch>=2.7.1",
+    "tqdm>=4.67.1",
 ]
 compute = [
     "modal",
