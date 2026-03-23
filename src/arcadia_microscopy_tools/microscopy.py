@@ -1,4 +1,5 @@
 from __future__ import annotations
+import warnings
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -6,6 +7,7 @@ from typing import Any
 
 import liffile
 import nd2
+from numpy import uint16
 
 from .channels import Channel
 from .metadata_structures import ChannelMetadata, DimensionFlags
@@ -28,6 +30,22 @@ class InstrumentMetadata:
 
     sizes: dict[str, int]
     channel_metadata_list: list[ChannelMetadata]
+
+    def __post_init__(self) -> None:
+        """Validate consistency between sizes and channel_metadata_list."""
+        for key in ("X", "Y"):
+            if key not in self.sizes:
+                raise ValueError(
+                    f"sizes must contain '{key}' dimension, got keys: {list(self.sizes.keys())}"
+                )
+
+        expected_num_channels = self.sizes.get("C", 1)
+        actual_num_channels = len(self.channel_metadata_list)
+        if actual_num_channels != expected_num_channels:
+            raise ValueError(
+                f"Number of channel metadata entries ({actual_num_channels}) does not match "
+                f"the channel dimension size ({expected_num_channels}) in sizes"
+            )
 
     @property
     def channel_axis(self) -> int | None:
@@ -132,6 +150,24 @@ class MicroscopyImage:
 
     intensities: UInt16Array
     metadata: Metadata
+
+    def __post_init__(self) -> None:
+        """Validate consistency between intensities array and metadata."""
+        expected_shape = tuple(self.metadata.instrument.sizes.values())
+        if self.intensities.shape != expected_shape:
+            raise ValueError(
+                f"Intensities shape {self.intensities.shape} does not match "
+                f"metadata sizes {self.metadata.instrument.sizes} "
+                f"(expected shape {expected_shape})"
+            )
+
+        if self.intensities.dtype != uint16:
+            warnings.warn(
+                f"Expected uint16 intensities, got {self.intensities.dtype}. "
+                f"Some operations may behave unexpectedly.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     def __repr__(self) -> str:
         """Return a concise string representation of the microscopy image."""
