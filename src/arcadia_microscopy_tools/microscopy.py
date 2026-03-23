@@ -250,14 +250,18 @@ class MicroscopyImage:
         """Get the number of channels in this image."""
         return len(self.metadata.instrument.channel_metadata_list)
 
-    def get_intensities_from_channel(self, channel: Channel) -> UInt16Array:
+    @staticmethod
+    def _resolve_channel_name(channel: str | Channel) -> str:
+        return channel if isinstance(channel, str) else channel.name
+
+    def get_intensities_from_channel(self, channel: str | Channel) -> UInt16Array:
         """Extract intensity data for a specific channel.
 
         Returns all data for the requested channel, preserving temporal and spatial
         dimensions (e.g., time-lapse or Z-stack).
 
         Args:
-            channel: The Channel object to extract.
+            channel: The channel to extract, as a Channel object or a channel name string.
 
         Returns:
             Intensity array for the specified channel. Shape depends on acquisition:
@@ -270,11 +274,11 @@ class MicroscopyImage:
         Raises:
             ValueError: If the specified channel is not in this image or no metadata available.
         """
-        # Find matching channel
-        channel_names = [channel.name for channel in self.channels]
-        if channel.name not in channel_names:
+        name = self._resolve_channel_name(channel)
+        channel_names = [ch.name for ch in self.channels]
+        if name not in channel_names:
             raise ValueError(
-                f"Channel '{channel.name}' not found in image. Available channels: "
+                f"Channel '{name}' not found in image. Available channels: "
                 f"{[ch.name for ch in self.channels]}"
             )
 
@@ -283,7 +287,7 @@ class MicroscopyImage:
             return self.intensities
 
         # Multi-channel - extract the specific channel using channel_axis
-        channel_index = channel_names.index(channel.name)
+        channel_index = channel_names.index(name)
         if self.channel_axis is None:
             raise ValueError("Channel axis not found in metadata")
 
@@ -296,7 +300,7 @@ class MicroscopyImage:
     def apply_pipeline(
         self,
         pipeline: Pipeline | PipelineParallelized,
-        channel: Channel,
+        channel: str | Channel,
     ) -> ScalarArray:
         """Apply a processing pipeline to intensity data from a specific channel.
 
@@ -306,7 +310,8 @@ class MicroscopyImage:
         Args:
             pipeline: The processing pipeline to apply. Can be either a Pipeline or
                 PipelineParallelized instance containing the sequence of transformations.
-            channel: The Channel object whose intensity data should be processed.
+            channel: The channel whose intensity data should be processed,
+                as a Channel object or a channel name string.
 
         Returns:
             Processed intensity data as a scalar array. The shape and dtype depend on
