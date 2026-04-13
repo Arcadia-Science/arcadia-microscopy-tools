@@ -1,10 +1,11 @@
+import warnings
+
 import numpy as np
 import pytest
 
 from arcadia_microscopy_tools.pipeline import ImageOperation, Pipeline, PipelineParallelized
 
 
-# Simple test operations for testing
 def double_intensity(intensities):
     """Double all intensity values."""
     return intensities * 2
@@ -65,6 +66,7 @@ class TestPipeline:
         assert len(pipeline) == 2
         assert pipeline.copy is False
         assert pipeline.preserve_dtype is True
+        assert pipeline.parallel is False
 
     def test_create_pipeline_with_copy(self):
         ops = [ImageOperation(double_intensity)]
@@ -91,7 +93,6 @@ class TestPipeline:
         pipeline = Pipeline(operations=[ImageOperation(double_intensity), ImageOperation(add_ten)])
         image = np.array([1, 2, 3], dtype=np.uint16)
         result = pipeline(image)
-        # First double: [2, 4, 6], then add 10: [12, 14, 16]
         np.testing.assert_array_equal(result, [12, 14, 16])
         assert result.dtype == np.uint16
 
@@ -100,7 +101,6 @@ class TestPipeline:
         pipeline = Pipeline(operations=[ImageOperation(to_float_normalized)])
         image = np.array([10, 20, 30], dtype=np.uint16)
         result = pipeline(image)
-        # to_float_normalized returns float, but preserve_dtype=True should cast back
         assert result.dtype == np.uint16
 
     def test_pipeline_preserve_dtype_false(self):
@@ -108,7 +108,6 @@ class TestPipeline:
         pipeline = Pipeline(operations=[ImageOperation(to_float_normalized)], preserve_dtype=False)
         image = np.array([10, 20, 30], dtype=np.uint16)
         result = pipeline(image)
-        # Should return float
         assert result.dtype in (np.float32, np.float64)
         np.testing.assert_allclose(result, [1 / 3, 2 / 3, 1.0])
 
@@ -121,81 +120,108 @@ class TestPipeline:
         np.testing.assert_array_equal(result, expected)
 
 
-class TestPipelineParallelized:
-    def test_create_pipeline_parallelized(self):
+class TestPipelineParallel:
+    def test_create_parallel_pipeline(self):
         ops = [ImageOperation(double_intensity)]
-        pipeline = PipelineParallelized(operations=ops)
+        pipeline = Pipeline(operations=ops, parallel=True)
         assert len(pipeline) == 1
+        assert pipeline.parallel is True
         assert pipeline.max_workers is None
-        assert pipeline.copy is False
-        assert pipeline.preserve_dtype is True
 
-    def test_create_pipeline_with_max_workers(self):
+    def test_create_parallel_pipeline_with_max_workers(self):
         ops = [ImageOperation(double_intensity)]
-        pipeline = PipelineParallelized(operations=ops, max_workers=4)
+        pipeline = Pipeline(operations=ops, parallel=True, max_workers=4)
         assert pipeline.max_workers == 4
 
-    def test_pipeline_parallelized_requires_operations(self):
+    def test_parallel_requires_operations(self):
         with pytest.raises(ValueError, match="at least one operation"):
-            PipelineParallelized(operations=[])
+            Pipeline(operations=[], parallel=True)
 
-    def test_pipeline_parallelized_3d_array(self):
+    def test_parallel_3d_array(self):
         """Test parallel processing of 3D array (e.g., time series)."""
-        pipeline = PipelineParallelized(operations=[ImageOperation(double_intensity)])
-        # Create 3D array: (time, height, width)
+        pipeline = Pipeline(operations=[ImageOperation(double_intensity)], parallel=True)
         image = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]], [[9, 10], [11, 12]]], dtype=np.uint16)
         result = pipeline(image)
         expected = image * 2
         np.testing.assert_array_equal(result, expected)
         assert result.dtype == np.uint16
 
-    def test_pipeline_parallelized_preserve_dtype_default(self):
+    def test_parallel_preserve_dtype_default(self):
         """Test that dtype is preserved by default."""
-        pipeline = PipelineParallelized(operations=[ImageOperation(to_float_normalized)])
+        pipeline = Pipeline(operations=[ImageOperation(to_float_normalized)], parallel=True)
         image = np.array([[[10, 20], [30, 40]]], dtype=np.uint16)
         result = pipeline(image)
-        # Should preserve uint16 dtype by default
         assert result.dtype == np.uint16
 
-    def test_pipeline_parallelized_preserve_dtype_false(self):
+    def test_parallel_preserve_dtype_false(self):
         """Test that dtype can change when preserve_dtype=False."""
-        pipeline = PipelineParallelized(
-            operations=[ImageOperation(to_float_normalized)], preserve_dtype=False
+        pipeline = Pipeline(
+            operations=[ImageOperation(to_float_normalized)], preserve_dtype=False, parallel=True
         )
         image = np.array([[[10, 20], [30, 40]]], dtype=np.uint16)
         result = pipeline(image)
-        # Should return float
         assert result.dtype in (np.float32, np.float64)
 
-    def test_pipeline_parallelized_multiple_operations(self):
+    def test_parallel_multiple_operations(self):
         """Test multiple operations in parallel pipeline."""
-        pipeline = PipelineParallelized(
-            operations=[ImageOperation(double_intensity), ImageOperation(add_ten)]
+        pipeline = Pipeline(
+            operations=[ImageOperation(double_intensity), ImageOperation(add_ten)], parallel=True
         )
         image = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]], dtype=np.uint16)
         result = pipeline(image)
-        # First double, then add 10
         expected = (image * 2) + 10
         np.testing.assert_array_equal(result, expected)
 
-    def test_pipeline_parallelized_single_frame(self):
+    def test_parallel_single_frame(self):
         """Test with single frame (edge case)."""
-        pipeline = PipelineParallelized(operations=[ImageOperation(double_intensity)])
+        pipeline = Pipeline(operations=[ImageOperation(double_intensity)], parallel=True)
         image = np.array([[[1, 2], [3, 4]]], dtype=np.uint16)
         result = pipeline(image)
         expected = image * 2
         np.testing.assert_array_equal(result, expected)
 
-    def test_pipeline_parallelized_many_frames(self):
+    def test_parallel_many_frames(self):
         """Test with many frames to ensure parallelization works."""
-        pipeline = PipelineParallelized(
-            operations=[ImageOperation(double_intensity)], max_workers=2
+        pipeline = Pipeline(
+            operations=[ImageOperation(double_intensity)], parallel=True, max_workers=2
         )
-        # Create 10 frames
         image = np.random.randint(0, 100, size=(10, 32, 32), dtype=np.uint16)
         result = pipeline(image)
         expected = image * 2
         np.testing.assert_array_equal(result, expected)
+
+
+class TestPipelineParallelizedCompat:
+    """Tests for the deprecated PipelineParallelized backward-compat wrapper."""
+
+    def test_returns_pipeline_with_parallel_true(self):
+        ops = [ImageOperation(double_intensity)]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            pipeline = PipelineParallelized(operations=ops)
+        assert isinstance(pipeline, Pipeline)
+        assert pipeline.parallel is True
+
+    def test_emits_deprecation_warning(self):
+        ops = [ImageOperation(double_intensity)]
+        with pytest.warns(DeprecationWarning, match="PipelineParallelized is deprecated"):
+            PipelineParallelized(operations=ops)
+
+    def test_passes_max_workers(self):
+        ops = [ImageOperation(double_intensity)]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            pipeline = PipelineParallelized(operations=ops, max_workers=4)
+        assert pipeline.max_workers == 4
+
+    def test_functional_compat(self):
+        """Verify the compat wrapper produces correct results."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            pipeline = PipelineParallelized(operations=[ImageOperation(double_intensity)])
+        image = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]], dtype=np.uint16)
+        result = pipeline(image)
+        np.testing.assert_array_equal(result, image * 2)
 
 
 class TestPipelineIntegration:
@@ -205,10 +231,9 @@ class TestPipelineIntegration:
         """Test a realistic normalization workflow for ML preprocessing."""
         from arcadia_microscopy_tools.operations import rescale_by_percentile
 
-        # Simulate 16-bit microscopy images (3 frames)
         image = np.random.randint(0, 65535, size=(3, 128, 128), dtype=np.uint16)
 
-        pipeline = PipelineParallelized(
+        pipeline = Pipeline(
             operations=[
                 ImageOperation(
                     rescale_by_percentile,
@@ -217,23 +242,22 @@ class TestPipelineIntegration:
                 )
             ],
             preserve_dtype=False,
+            parallel=True,
         )
 
         result = pipeline(image)
 
-        # Should be normalized to [0, 1] float range
         assert result.dtype in (np.float32, np.float64)
         assert result.min() >= 0
         assert result.max() <= 1
 
     def test_normalization_workflow_preserve_dtype_true(self):
-        """Test normalization with dtype preservation (legacy behavior)."""
+        """Test normalization with dtype preservation."""
         from arcadia_microscopy_tools.operations import rescale_by_percentile
 
-        # Simulate 16-bit microscopy images
         image = np.random.randint(0, 65535, size=(3, 128, 128), dtype=np.uint16)
 
-        pipeline = PipelineParallelized(
+        pipeline = Pipeline(
             operations=[
                 ImageOperation(
                     rescale_by_percentile,
@@ -242,11 +266,11 @@ class TestPipelineIntegration:
                 )
             ],
             preserve_dtype=True,
+            parallel=True,
         )
 
         result = pipeline(image)
 
-        # Should stay as uint16
         assert result.dtype == np.uint16
 
     def test_background_subtraction_and_normalization(self):
@@ -256,10 +280,9 @@ class TestPipelineIntegration:
             subtract_background_dog,
         )
 
-        # Create test image with background
         image = np.random.randint(100, 200, size=(2, 64, 64), dtype=np.uint16)
 
-        pipeline = PipelineParallelized(
+        pipeline = Pipeline(
             operations=[
                 ImageOperation(subtract_background_dog, low_sigma=1, high_sigma=10),
                 ImageOperation(
@@ -269,10 +292,10 @@ class TestPipelineIntegration:
                 ),
             ],
             preserve_dtype=False,
+            parallel=True,
         )
 
         result = pipeline(image)
 
-        # Should be float after processing
         assert result.dtype in (np.float32, np.float64)
         assert result.shape == image.shape
