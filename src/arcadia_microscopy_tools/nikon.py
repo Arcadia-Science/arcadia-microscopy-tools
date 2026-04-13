@@ -336,7 +336,7 @@ class _NikonMetadataParser:
         return None
 
     def _parse_exposure_time(self, sample_text: str) -> float | None:
-        """Parse exposure time from sample text, converting to milliseconds."""
+        """Parse exposure time from sample text, converting to seconds."""
         pattern = r"Exposure: (\d+(?:\.\d+)?) (\w+)"
         for line in sample_text.splitlines():
             if "Exposure" in line:
