@@ -61,7 +61,7 @@ class TestImageOperation:
     def test_frozen(self):
         op = ImageOperation(double_intensity)
         with pytest.raises(AttributeError):
-            op.func = add_ten
+            op.func = add_ten  # type: ignore[misc]
 
     def test_equality(self):
         op1 = ImageOperation(double_intensity)
@@ -84,7 +84,7 @@ class TestImageOperation:
 
 class TestPipeline:
     def test_create_pipeline(self):
-        ops = [ImageOperation(double_intensity), ImageOperation(add_ten)]
+        ops = (ImageOperation(double_intensity), ImageOperation(add_ten))
         pipeline = Pipeline(operations=ops)
         assert len(pipeline) == 2
         assert pipeline.copy is False
@@ -92,28 +92,28 @@ class TestPipeline:
         assert pipeline.parallel is False
 
     def test_create_pipeline_with_copy(self):
-        ops = [ImageOperation(double_intensity)]
+        ops = (ImageOperation(double_intensity),)
         pipeline = Pipeline(operations=ops, copy=True)
         assert pipeline.copy is True
 
     def test_create_pipeline_with_preserve_dtype_false(self):
-        ops = [ImageOperation(to_float_normalized)]
+        ops = (ImageOperation(to_float_normalized),)
         pipeline = Pipeline(operations=ops, preserve_dtype=False)
         assert pipeline.preserve_dtype is False
 
     def test_pipeline_requires_operations(self):
         with pytest.raises(ValueError, match="at least one operation"):
-            Pipeline(operations=[])
+            Pipeline(operations=())
 
     def test_pipeline_single_operation(self):
-        pipeline = Pipeline(operations=[ImageOperation(double_intensity)])
+        pipeline = Pipeline(operations=(ImageOperation(double_intensity),))
         image = np.array([1, 2, 3], dtype=np.uint16)
         result = pipeline(image)
         np.testing.assert_array_equal(result, [2, 4, 6])
         assert result.dtype == np.uint16
 
     def test_pipeline_multiple_operations(self):
-        pipeline = Pipeline(operations=[ImageOperation(double_intensity), ImageOperation(add_ten)])
+        pipeline = Pipeline(operations=(ImageOperation(double_intensity), ImageOperation(add_ten)))
         image = np.array([1, 2, 3], dtype=np.uint16)
         result = pipeline(image)
         np.testing.assert_array_equal(result, [12, 14, 16])
@@ -121,14 +121,14 @@ class TestPipeline:
 
     def test_pipeline_preserve_dtype_default(self):
         """Test that dtype is preserved by default when it changes."""
-        pipeline = Pipeline(operations=[ImageOperation(to_float_normalized)])
+        pipeline = Pipeline(operations=(ImageOperation(to_float_normalized),))
         image = np.array([10, 20, 30], dtype=np.uint16)
         result = pipeline(image)
         assert result.dtype == np.uint16
 
     def test_pipeline_preserve_dtype_false(self):
         """Test that dtype can change when preserve_dtype=False."""
-        pipeline = Pipeline(operations=[ImageOperation(to_float_normalized)], preserve_dtype=False)
+        pipeline = Pipeline(operations=(ImageOperation(to_float_normalized),), preserve_dtype=False)
         image = np.array([10, 20, 30], dtype=np.uint16)
         result = pipeline(image)
         assert result.dtype in (np.float32, np.float64)
@@ -136,7 +136,7 @@ class TestPipeline:
 
     def test_pipeline_with_2d_image(self):
         """Test pipeline with 2D image arrays."""
-        pipeline = Pipeline(operations=[ImageOperation(double_intensity)])
+        pipeline = Pipeline(operations=(ImageOperation(double_intensity),))
         image = np.array([[1, 2], [3, 4]], dtype=np.uint16)
         result = pipeline(image)
         expected = np.array([[2, 4], [6, 8]], dtype=np.uint16)
@@ -145,27 +145,27 @@ class TestPipeline:
     def test_operations_coerced_to_tuple(self):
         """Test that a list of operations is converted to a tuple."""
         ops = [ImageOperation(double_intensity)]
-        pipeline = Pipeline(operations=ops)
+        pipeline = Pipeline(operations=ops)  # type: ignore[arg-type]
         assert isinstance(pipeline.operations, tuple)
 
     def test_max_workers_validation(self):
         """Test that max_workers must be at least 1."""
         with pytest.raises(ValueError, match="max_workers must be at least 1"):
-            Pipeline(operations=[ImageOperation(double_intensity)], max_workers=0)
+            Pipeline(operations=(ImageOperation(double_intensity),), max_workers=0)
 
     def test_max_workers_negative(self):
         with pytest.raises(ValueError, match="max_workers must be at least 1"):
-            Pipeline(operations=[ImageOperation(double_intensity)], max_workers=-1)
+            Pipeline(operations=(ImageOperation(double_intensity),), max_workers=-1)
 
     def test_non_callable_operation_raises(self):
         """Test that non-callable operations raise TypeError."""
         with pytest.raises(TypeError, match="All operations must be callable"):
-            Pipeline(operations=["not_a_function"])
+            Pipeline(operations=("not_a_function",))  # type: ignore[arg-type]
 
     def test_mixed_callable_non_callable_raises(self):
         """Test that a mix of callable and non-callable operations raises TypeError."""
         with pytest.raises(TypeError, match="All operations must be callable"):
-            Pipeline(operations=[ImageOperation(double_intensity), 42])
+            Pipeline(operations=(ImageOperation(double_intensity), 42))  # type: ignore[arg-type]
 
 
 class TestPipelineParallel:
@@ -173,43 +173,43 @@ class TestPipelineParallel:
         """Test that copy=True with parallel=True emits a warning."""
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            Pipeline(operations=[ImageOperation(double_intensity)], parallel=True, copy=True)
+            Pipeline(operations=(ImageOperation(double_intensity),), parallel=True, copy=True)
             assert len(w) == 1
             assert "copy=True has no effect" in str(w[0].message)
 
     def test_create_parallel_pipeline(self):
-        ops = [ImageOperation(double_intensity)]
+        ops = (ImageOperation(double_intensity),)
         pipeline = Pipeline(operations=ops, parallel=True)
         assert len(pipeline) == 1
         assert pipeline.parallel is True
         assert pipeline.max_workers is None
 
     def test_create_parallel_pipeline_with_max_workers(self):
-        ops = [ImageOperation(double_intensity)]
+        ops = (ImageOperation(double_intensity),)
         pipeline = Pipeline(operations=ops, parallel=True, max_workers=4)
         assert pipeline.max_workers == 4
 
     def test_parallel_requires_operations(self):
         with pytest.raises(ValueError, match="at least one operation"):
-            Pipeline(operations=[], parallel=True)
+            Pipeline(operations=(), parallel=True)
 
     def test_parallel_rejects_2d_input(self):
         """Test that parallel mode raises on 2D input."""
-        pipeline = Pipeline(operations=[ImageOperation(double_intensity)], parallel=True)
+        pipeline = Pipeline(operations=(ImageOperation(double_intensity),), parallel=True)
         image = np.array([[1, 2], [3, 4]], dtype=np.uint16)
         with pytest.raises(ValueError, match="at least 3D input"):
             pipeline(image)
 
     def test_parallel_rejects_1d_input(self):
         """Test that parallel mode raises on 1D input."""
-        pipeline = Pipeline(operations=[ImageOperation(double_intensity)], parallel=True)
+        pipeline = Pipeline(operations=(ImageOperation(double_intensity),), parallel=True)
         image = np.array([1, 2, 3], dtype=np.uint16)
         with pytest.raises(ValueError, match="at least 3D input"):
             pipeline(image)
 
     def test_parallel_3d_array(self):
         """Test parallel processing of 3D array (e.g., time series)."""
-        pipeline = Pipeline(operations=[ImageOperation(double_intensity)], parallel=True)
+        pipeline = Pipeline(operations=(ImageOperation(double_intensity),), parallel=True)
         image = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]], [[9, 10], [11, 12]]], dtype=np.uint16)
         result = pipeline(image)
         expected = image * 2
@@ -218,7 +218,7 @@ class TestPipelineParallel:
 
     def test_parallel_preserve_dtype_default(self):
         """Test that dtype is preserved by default."""
-        pipeline = Pipeline(operations=[ImageOperation(to_float_normalized)], parallel=True)
+        pipeline = Pipeline(operations=(ImageOperation(to_float_normalized),), parallel=True)
         image = np.array([[[10, 20], [30, 40]]], dtype=np.uint16)
         result = pipeline(image)
         assert result.dtype == np.uint16
@@ -226,7 +226,7 @@ class TestPipelineParallel:
     def test_parallel_preserve_dtype_false(self):
         """Test that dtype can change when preserve_dtype=False."""
         pipeline = Pipeline(
-            operations=[ImageOperation(to_float_normalized)], preserve_dtype=False, parallel=True
+            operations=(ImageOperation(to_float_normalized),), preserve_dtype=False, parallel=True
         )
         image = np.array([[[10, 20], [30, 40]]], dtype=np.uint16)
         result = pipeline(image)
@@ -235,7 +235,7 @@ class TestPipelineParallel:
     def test_parallel_multiple_operations(self):
         """Test multiple operations in parallel pipeline."""
         pipeline = Pipeline(
-            operations=[ImageOperation(double_intensity), ImageOperation(add_ten)], parallel=True
+            operations=(ImageOperation(double_intensity), ImageOperation(add_ten)), parallel=True
         )
         image = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]], dtype=np.uint16)
         result = pipeline(image)
@@ -244,7 +244,7 @@ class TestPipelineParallel:
 
     def test_parallel_single_frame(self):
         """Test with single frame (edge case)."""
-        pipeline = Pipeline(operations=[ImageOperation(double_intensity)], parallel=True)
+        pipeline = Pipeline(operations=(ImageOperation(double_intensity),), parallel=True)
         image = np.array([[[1, 2], [3, 4]]], dtype=np.uint16)
         result = pipeline(image)
         expected = image * 2
@@ -253,7 +253,7 @@ class TestPipelineParallel:
     def test_parallel_many_frames(self):
         """Test with many frames to ensure parallelization works."""
         pipeline = Pipeline(
-            operations=[ImageOperation(double_intensity)], parallel=True, max_workers=2
+            operations=(ImageOperation(double_intensity),), parallel=True, max_workers=2
         )
         image = np.random.randint(0, 100, size=(10, 32, 32), dtype=np.uint16)
         result = pipeline(image)
@@ -271,12 +271,12 @@ class TestPipelineIntegration:
         image = np.random.randint(0, 65535, size=(3, 128, 128), dtype=np.uint16)
 
         pipeline = Pipeline(
-            operations=[
+            operations=(
                 ImageOperation(
                     rescale_by_percentile,
                     kwargs={"percentile_range": (2, 98), "out_range": (0, 1)},
-                )
-            ],
+                ),
+            ),
             preserve_dtype=False,
             parallel=True,
         )
@@ -294,12 +294,12 @@ class TestPipelineIntegration:
         image = np.random.randint(0, 65535, size=(3, 128, 128), dtype=np.uint16)
 
         pipeline = Pipeline(
-            operations=[
+            operations=(
                 ImageOperation(
                     rescale_by_percentile,
                     kwargs={"percentile_range": (2, 98), "out_range": (0, 65535)},
-                )
-            ],
+                ),
+            ),
             preserve_dtype=True,
             parallel=True,
         )
@@ -318,7 +318,7 @@ class TestPipelineIntegration:
         image = np.random.randint(100, 200, size=(2, 64, 64), dtype=np.uint16)
 
         pipeline = Pipeline(
-            operations=[
+            operations=(
                 ImageOperation(
                     subtract_background_dog, kwargs={"low_sigma": 1, "high_sigma": 10}
                 ),
@@ -326,7 +326,7 @@ class TestPipelineIntegration:
                     rescale_by_percentile,
                     kwargs={"percentile_range": (1, 99), "out_range": (0, 1)},
                 ),
-            ],
+            ),
             preserve_dtype=False,
             parallel=True,
         )
