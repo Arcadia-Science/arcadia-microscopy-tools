@@ -132,39 +132,3 @@ class Pipeline:
             params.append(f"max_workers={self.max_workers}")
         params_str = f", {', '.join(params)}" if params else ""
         return f"Pipeline([{operations_repr}]{params_str})"
-
-
-def PipelineParallelized(
-    operations: list[ImageOperation],
-    copy: bool = False,
-    preserve_dtype: bool = True,
-    max_workers: int | None = None,
-) -> Pipeline:
-    """Create a Pipeline with parallel execution enabled.
-
-    .. deprecated::
-        Use ``Pipeline(..., parallel=True)`` instead.
-
-    Args:
-        operations: List of ImageOperation instances to apply in sequence.
-        copy: If True, creates a copy of each frame before processing.
-        preserve_dtype: If True, forces output to have the same dtype as input.
-        max_workers: Maximum number of worker threads. None uses the default.
-
-    Returns:
-        A Pipeline instance with parallel=True.
-    """
-    import warnings
-
-    warnings.warn(
-        "PipelineParallelized is deprecated. Use Pipeline(..., parallel=True) instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return Pipeline(
-        operations=operations,
-        copy=copy,
-        preserve_dtype=preserve_dtype,
-        parallel=True,
-        max_workers=max_workers,
-    )
