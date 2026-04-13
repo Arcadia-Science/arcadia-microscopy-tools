@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pytest
 
@@ -155,8 +157,26 @@ class TestPipeline:
         with pytest.raises(ValueError, match="max_workers must be at least 1"):
             Pipeline(operations=[ImageOperation(double_intensity)], max_workers=-1)
 
+    def test_non_callable_operation_raises(self):
+        """Test that non-callable operations raise TypeError."""
+        with pytest.raises(TypeError, match="All operations must be callable"):
+            Pipeline(operations=["not_a_function"])
+
+    def test_mixed_callable_non_callable_raises(self):
+        """Test that a mix of callable and non-callable operations raises TypeError."""
+        with pytest.raises(TypeError, match="All operations must be callable"):
+            Pipeline(operations=[ImageOperation(double_intensity), 42])
+
 
 class TestPipelineParallel:
+    def test_copy_true_parallel_warns(self):
+        """Test that copy=True with parallel=True emits a warning."""
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            Pipeline(operations=[ImageOperation(double_intensity)], parallel=True, copy=True)
+            assert len(w) == 1
+            assert "copy=True has no effect" in str(w[0].message)
+
     def test_create_parallel_pipeline(self):
         ops = [ImageOperation(double_intensity)]
         pipeline = Pipeline(operations=ops, parallel=True)
