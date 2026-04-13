@@ -27,17 +27,17 @@ def square_values(intensities):
 class TestImageOperation:
     def test_create_operation_no_args(self):
         op = ImageOperation(double_intensity)
-        assert op.method == double_intensity
+        assert op.func == double_intensity
         assert op.args == ()
         assert op.kwargs == {}
 
     def test_create_operation_with_args(self):
-        op = ImageOperation(np.add, 5)
-        assert op.method == np.add
+        op = ImageOperation(np.add, args=(5,))
+        assert op.func == np.add
         assert op.args == (5,)
 
     def test_create_operation_with_kwargs(self):
-        op = ImageOperation(np.clip, a_min=0, a_max=100)
+        op = ImageOperation(np.clip, kwargs={"a_min": 0, "a_max": 100})
         assert op.kwargs == {"a_min": 0, "a_max": 100}
 
     def test_call_operation(self):
@@ -47,7 +47,7 @@ class TestImageOperation:
         np.testing.assert_array_equal(result, [2, 4, 6])
 
     def test_call_operation_with_args(self):
-        op = ImageOperation(np.add, 10)
+        op = ImageOperation(np.add, args=(10,))
         image = np.array([1, 2, 3])
         result = op(image)
         np.testing.assert_array_equal(result, [11, 12, 13])
@@ -55,6 +55,29 @@ class TestImageOperation:
     def test_repr(self):
         op = ImageOperation(double_intensity)
         assert "double_intensity" in repr(op)
+
+    def test_frozen(self):
+        op = ImageOperation(double_intensity)
+        with pytest.raises(AttributeError):
+            op.func = add_ten
+
+    def test_equality(self):
+        op1 = ImageOperation(double_intensity)
+        op2 = ImageOperation(double_intensity)
+        assert op1 == op2
+
+    def test_inequality(self):
+        op1 = ImageOperation(double_intensity)
+        op2 = ImageOperation(add_ten)
+        assert op1 != op2
+
+    def test_equality_with_args(self):
+        op1 = ImageOperation(np.add, args=(5,))
+        op2 = ImageOperation(np.add, args=(5,))
+        assert op1 == op2
+
+        op3 = ImageOperation(np.add, args=(10,))
+        assert op1 != op3
 
 
 class TestPipeline:
@@ -117,6 +140,21 @@ class TestPipeline:
         expected = np.array([[2, 4], [6, 8]], dtype=np.uint16)
         np.testing.assert_array_equal(result, expected)
 
+    def test_operations_coerced_to_tuple(self):
+        """Test that a list of operations is converted to a tuple."""
+        ops = [ImageOperation(double_intensity)]
+        pipeline = Pipeline(operations=ops)
+        assert isinstance(pipeline.operations, tuple)
+
+    def test_max_workers_validation(self):
+        """Test that max_workers must be at least 1."""
+        with pytest.raises(ValueError, match="max_workers must be at least 1"):
+            Pipeline(operations=[ImageOperation(double_intensity)], max_workers=0)
+
+    def test_max_workers_negative(self):
+        with pytest.raises(ValueError, match="max_workers must be at least 1"):
+            Pipeline(operations=[ImageOperation(double_intensity)], max_workers=-1)
+
 
 class TestPipelineParallel:
     def test_create_parallel_pipeline(self):
@@ -134,6 +172,20 @@ class TestPipelineParallel:
     def test_parallel_requires_operations(self):
         with pytest.raises(ValueError, match="at least one operation"):
             Pipeline(operations=[], parallel=True)
+
+    def test_parallel_rejects_2d_input(self):
+        """Test that parallel mode raises on 2D input."""
+        pipeline = Pipeline(operations=[ImageOperation(double_intensity)], parallel=True)
+        image = np.array([[1, 2], [3, 4]], dtype=np.uint16)
+        with pytest.raises(ValueError, match="at least 3D input"):
+            pipeline(image)
+
+    def test_parallel_rejects_1d_input(self):
+        """Test that parallel mode raises on 1D input."""
+        pipeline = Pipeline(operations=[ImageOperation(double_intensity)], parallel=True)
+        image = np.array([1, 2, 3], dtype=np.uint16)
+        with pytest.raises(ValueError, match="at least 3D input"):
+            pipeline(image)
 
     def test_parallel_3d_array(self):
         """Test parallel processing of 3D array (e.g., time series)."""
@@ -202,8 +254,7 @@ class TestPipelineIntegration:
             operations=[
                 ImageOperation(
                     rescale_by_percentile,
-                    percentile_range=(2, 98),
-                    out_range=(0, 1),
+                    kwargs={"percentile_range": (2, 98), "out_range": (0, 1)},
                 )
             ],
             preserve_dtype=False,
@@ -226,8 +277,7 @@ class TestPipelineIntegration:
             operations=[
                 ImageOperation(
                     rescale_by_percentile,
-                    percentile_range=(2, 98),
-                    out_range=(0, 65535),
+                    kwargs={"percentile_range": (2, 98), "out_range": (0, 65535)},
                 )
             ],
             preserve_dtype=True,
@@ -249,11 +299,12 @@ class TestPipelineIntegration:
 
         pipeline = Pipeline(
             operations=[
-                ImageOperation(subtract_background_dog, low_sigma=1, high_sigma=10),
+                ImageOperation(
+                    subtract_background_dog, kwargs={"low_sigma": 1, "high_sigma": 10}
+                ),
                 ImageOperation(
                     rescale_by_percentile,
-                    percentile_range=(1, 99),
-                    out_range=(0, 1),
+                    kwargs={"percentile_range": (1, 99), "out_range": (0, 1)},
                 ),
             ],
             preserve_dtype=False,
