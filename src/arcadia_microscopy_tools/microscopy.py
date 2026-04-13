@@ -11,7 +11,7 @@ from numpy import uint16
 
 from .channels import Channel
 from .metadata_structures import ChannelMetadata, DimensionFlags
-from .pipeline import Pipeline, PipelineParallelized
+from .pipeline import Pipeline
 from .typing import ScalarArray, UInt16Array
 
 
@@ -335,7 +335,7 @@ class MicroscopyImage:
 
     def apply_pipeline(
         self,
-        pipeline: Pipeline | PipelineParallelized,
+        pipeline: Pipeline,
         channel: str | Channel,
     ) -> ScalarArray:
         """Apply a processing pipeline to intensity data from a specific channel.
@@ -344,8 +344,7 @@ class MicroscopyImage:
         through the provided pipeline. Supports both standard and parallelized pipelines.
 
         Args:
-            pipeline: The processing pipeline to apply. Can be either a Pipeline or
-                PipelineParallelized instance containing the sequence of transformations.
+            pipeline: The processing pipeline to apply.
             channel: The channel whose intensity data should be processed,
                 as a Channel object or a channel name string.
 
