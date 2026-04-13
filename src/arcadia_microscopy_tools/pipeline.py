@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -84,8 +85,16 @@ class Pipeline:
             object.__setattr__(self, "operations", tuple(self.operations))
         if not self.operations:
             raise ValueError("Pipeline must have at least one operation")
+        if not all(callable(op) for op in self.operations):
+            raise TypeError("All operations must be callable (wrap functions with ImageOperation)")
         if self.max_workers is not None and self.max_workers < 1:
             raise ValueError(f"max_workers must be at least 1, got {self.max_workers}")
+        if self.parallel and self.copy:
+            warnings.warn(
+                "copy=True has no effect when parallel=True. "
+                "Parallel mode always produces a new output array.",
+                stacklevel=2,
+            )
 
     def _apply_operations(self, intensities: ScalarArray) -> ScalarArray:
         """Apply all operations to an image array."""
