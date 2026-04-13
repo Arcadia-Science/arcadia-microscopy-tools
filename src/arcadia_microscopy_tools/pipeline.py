@@ -21,7 +21,7 @@ class ImageOperation:
         kwargs: Keyword arguments to pass to the function.
     """
 
-    func: Callable
+    func: Callable[..., ScalarArray]
     args: tuple = ()
     kwargs: dict = field(default_factory=dict)
 

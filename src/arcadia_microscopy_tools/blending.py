@@ -27,7 +27,7 @@ class Layer:
     opacity: float = 1.0
     transparent: bool = True
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate that the channel has a color defined."""
         if self.channel.color is None:
             raise ValueError(f"Channel '{self.channel.name}' has no color defined")

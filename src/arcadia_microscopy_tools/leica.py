@@ -625,7 +625,7 @@ class _LeicaMetadataParser:
             return datetime(1969, 7, 20, 20, 17)
 
     @property
-    def confocal_settings(self) -> dict:
+    def confocal_settings(self) -> dict[str, Any]:
         """Get ATLConfocalSettingDefinition from hardware settings."""
         return self.image.attrs.get("HardwareSetting", {}).get("ATLConfocalSettingDefinition", {})
 

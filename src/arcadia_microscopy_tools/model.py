@@ -70,7 +70,7 @@ class SegmentationModel:
     device: torch.device | None = field(default=None)
     _model: CellposeModel | None = field(default=None, init=False, repr=False)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Set device if not provided."""
         if self.device is None:
             self.device = self.find_best_available_device()

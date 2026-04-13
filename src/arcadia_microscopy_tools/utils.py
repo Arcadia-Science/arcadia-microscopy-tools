@@ -1,7 +1,7 @@
 import logging
 
 
-def configure_logging(verbose):
+def configure_logging(verbose: bool) -> None:
     """Configure the Python logging system with optional verbosity.
 
     Sets up a basic logging configuration with a standardized format for timestamps,

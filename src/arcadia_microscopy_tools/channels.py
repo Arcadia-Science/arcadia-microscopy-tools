@@ -19,7 +19,7 @@ class Channel:
     # Class-level registry of predefined channels
     registry: ClassVar[dict[str, Channel]] = {}
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate channel properties."""
         if self.excitation_nm is not None and self.excitation_nm <= 0:
             raise ValueError("Excitation wavelength must be positive")

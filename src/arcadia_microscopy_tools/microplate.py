@@ -21,7 +21,7 @@ class Well:
     sample: str = ""
     properties: dict[str, Any] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate and normalize the well ID."""
         if not self.id or len(self.id) < 2:
             raise ValueError("Well ID must be at least 2 characters (e.g., 'A1' or 'A01')")
@@ -101,7 +101,7 @@ class MicroplateLayout:
     wells: Sequence[Well]
     _layout: dict[str, Well] = field(init=False, repr=False)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Build internal dict from wells and validate for duplicates."""
         well_dict = {}
         for well in self.wells:
