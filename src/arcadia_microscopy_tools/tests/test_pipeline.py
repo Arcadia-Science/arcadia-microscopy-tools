@@ -1,9 +1,7 @@
-import warnings
-
 import numpy as np
 import pytest
 
-from arcadia_microscopy_tools.pipeline import ImageOperation, Pipeline, PipelineParallelized
+from arcadia_microscopy_tools.pipeline import ImageOperation, Pipeline
 
 
 def double_intensity(intensities):
@@ -189,39 +187,6 @@ class TestPipelineParallel:
         result = pipeline(image)
         expected = image * 2
         np.testing.assert_array_equal(result, expected)
-
-
-class TestPipelineParallelizedCompat:
-    """Tests for the deprecated PipelineParallelized backward-compat wrapper."""
-
-    def test_returns_pipeline_with_parallel_true(self):
-        ops = [ImageOperation(double_intensity)]
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            pipeline = PipelineParallelized(operations=ops)
-        assert isinstance(pipeline, Pipeline)
-        assert pipeline.parallel is True
-
-    def test_emits_deprecation_warning(self):
-        ops = [ImageOperation(double_intensity)]
-        with pytest.warns(DeprecationWarning, match="PipelineParallelized is deprecated"):
-            PipelineParallelized(operations=ops)
-
-    def test_passes_max_workers(self):
-        ops = [ImageOperation(double_intensity)]
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            pipeline = PipelineParallelized(operations=ops, max_workers=4)
-        assert pipeline.max_workers == 4
-
-    def test_functional_compat(self):
-        """Verify the compat wrapper produces correct results."""
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            pipeline = PipelineParallelized(operations=[ImageOperation(double_intensity)])
-        image = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]], dtype=np.uint16)
-        result = pipeline(image)
-        np.testing.assert_array_equal(result, image * 2)
 
 
 class TestPipelineIntegration:
