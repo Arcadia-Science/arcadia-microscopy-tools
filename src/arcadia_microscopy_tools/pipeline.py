@@ -1,28 +1,28 @@
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from .typing import ScalarArray
 
 
+@dataclass(frozen=True)
 class ImageOperation:
     """A callable wrapper for image processing functions.
 
-    Stores a method along with its args and kwargs for later execution on an image intensity array.
-    Allows for convenient composition of image processing pipelines.
+    Stores a function along with its args and kwargs for later execution on an image
+    intensity array. Allows for convenient composition of image processing pipelines.
 
     Args:
         func: The image processing function to wrap.
-        *args: Positional arguments to pass to the function.
-        **kwargs: Keyword arguments to pass to the function.
+        args: Positional arguments to pass to the function.
+        kwargs: Keyword arguments to pass to the function.
     """
 
-    def __init__(self, func: Callable, *args, **kwargs):
-        self.method = func
-        self.args = args
-        self.kwargs = kwargs
+    func: Callable
+    args: tuple = ()
+    kwargs: dict = field(default_factory=dict)
 
     def __call__(self, intensities: ScalarArray) -> ScalarArray:
         """Apply the operation to an image.
@@ -33,14 +33,14 @@ class ImageOperation:
         Returns:
             ScalarArray: The processed image intensity array.
         """
-        return self.method(intensities, *self.args, **self.kwargs)
+        return self.func(intensities, *self.args, **self.kwargs)
 
     def __repr__(self) -> str:
         """Create a string representation of the operation."""
         args_repr = [repr(arg) for arg in self.args]
         kwargs_repr = [f"{key}={repr(value)}" for key, value in self.kwargs.items()]
         args_kwargs_repr = ", ".join(args_repr + kwargs_repr)
-        return f"{self.method.__name__}({args_kwargs_repr})"
+        return f"{self.func.__name__}({args_kwargs_repr})"
 
 
 @dataclass
@@ -52,18 +52,19 @@ class Pipeline:
     first axis of multi-dimensional data (e.g., timelapse, z-stacks).
 
     Attributes:
-        operations: List of ImageOperation instances to apply in sequence.
+        operations: Tuple of ImageOperation instances to apply in sequence.
         copy: If True, creates a copy of the input array before processing. If False,
             operations are applied directly to the input. Default is False for performance.
+            Ignored when parallel=True (the output is always a new array).
         preserve_dtype: If True, forces output to have the same dtype as input. If False,
             allows dtype to change based on operations (e.g., uint16 -> float64 for
             normalization). Default is True.
         parallel: If True, applies operations to each slice along the first axis in
             parallel using ThreadPoolExecutor. Useful for timelapse, z-stack, or
-            multi-channel data. Default is False.
-        max_workers: Maximum number of worker threads when parallel=True. If None,
-            ThreadPoolExecutor uses its default (typically the number of CPU cores).
-            Ignored when parallel=False.
+            multi-channel data. Requires at least 3D input. Default is False.
+        max_workers: Maximum number of worker threads when parallel=True. Must be at
+            least 1. If None, ThreadPoolExecutor uses its default (typically the number
+            of CPU cores). Ignored when parallel=False.
 
     Note:
         Parallel mode uses thread-based parallelism, which is most effective for operations
@@ -71,7 +72,7 @@ class Pipeline:
         from parallelization due to the Global Interpreter Lock.
     """
 
-    operations: list[ImageOperation]
+    operations: tuple[ImageOperation, ...]
     copy: bool = False
     preserve_dtype: bool = True
     parallel: bool = False
@@ -79,8 +80,12 @@ class Pipeline:
 
     def __post_init__(self) -> None:
         """Validate the pipeline configuration."""
+        if isinstance(self.operations, list):
+            object.__setattr__(self, "operations", tuple(self.operations))
         if not self.operations:
             raise ValueError("Pipeline must have at least one operation")
+        if self.max_workers is not None and self.max_workers < 1:
+            raise ValueError(f"max_workers must be at least 1, got {self.max_workers}")
 
     def _apply_operations(self, intensities: ScalarArray) -> ScalarArray:
         """Apply all operations to an image array."""
@@ -94,15 +99,23 @@ class Pipeline:
 
         When parallel=False, applies operations to the entire array sequentially.
         When parallel=True, maps operations over each slice of the first axis using
-        a thread pool.
+        a thread pool. Requires at least 3D input.
 
         Args:
             intensities: Input image as an array of intensity values.
 
         Returns:
             ScalarArray: The processed image intensity array after applying all operations.
+
+        Raises:
+            ValueError: If parallel=True and input has fewer than 3 dimensions.
         """
         if self.parallel:
+            if intensities.ndim < 3:
+                raise ValueError(
+                    f"Parallel mode requires at least 3D input (got {intensities.ndim}D). "
+                    "The first axis is used to distribute work across threads."
+                )
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 processed = list(executor.map(self._apply_operations, intensities))
             if self.preserve_dtype:
