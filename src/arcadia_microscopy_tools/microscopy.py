@@ -51,14 +51,12 @@ class InstrumentMetadata:
     def channel_axis(self) -> int | None:
         """Get the axis index for the channel dimension, or None if single channel."""
         if "C" in self.sizes:
-            return next((i for i, k in enumerate(self.sizes.keys()) if k == "C"), None)
+            return list(self.sizes.keys()).index("C")
+        return None
 
     @cached_property
     def dimensions(self) -> DimensionFlags:
         """Derive dimension flags by combining from all channels."""
-        if not self.channel_metadata_list:
-            return DimensionFlags(0)
-
         _dimensions = DimensionFlags(0)
         for channel_metadata in self.channel_metadata_list:
             _dimensions |= channel_metadata.dimensions
@@ -126,6 +124,15 @@ class Metadata:
     instrument: InstrumentMetadata
     sample: dict[str, Any] | None = None
 
+    def __repr__(self) -> str:
+        """Return a concise string representation of the metadata."""
+        channels = [cm.channel.name for cm in self.instrument.channel_metadata_list]
+        sample_str = f", sample={self.sample}" if self.sample else ""
+        return (
+            f"Metadata(sizes={self.instrument.sizes}, "
+            f"channels={channels}{sample_str})"
+        )
+
 
 @dataclass
 class MicroscopyImage:
@@ -173,25 +180,20 @@ class MicroscopyImage:
         """Return a concise string representation of the microscopy image."""
         dtype_str = f"dtype={self.intensities.dtype}"
 
-        # Show first few and last few intensity values
-        flat = self.intensities.flatten()
-        if len(flat) <= 10:
-            intensity_str = f"intensities={list(flat)}"
+        total = self.intensities.size
+        if total <= 10:
+            intensity_str = f"intensities={list(self.intensities.flat)}"
         else:
-            first_vals = flat[:3].tolist()
-            last_vals = flat[-3:].tolist()
+            first_vals = self.intensities.flat[:3].tolist()
+            last_vals = self.intensities.flat[-3:].tolist()
             intensity_str = (
                 f"intensities=[{', '.join(map(str, first_vals))}, ..., "
                 f"{', '.join(map(str, last_vals))}]"
             )
 
-        # Add dimension/channel info if available
-        try:
-            sizes_str = f"sizes={self.sizes}"
-            channels_str = f"channels={[channel.name for channel in self.channels]}"
-            info = f"{sizes_str}, {channels_str}, {intensity_str}, {dtype_str}"
-        except ValueError:
-            info = f"{intensity_str}, {dtype_str}"
+        sizes_str = f"sizes={self.sizes}"
+        channels_str = f"channels={[channel.name for channel in self.channels]}"
+        info = f"{sizes_str}, {channels_str}, {intensity_str}, {dtype_str}"
 
         return f"MicroscopyImage({info})"
 
