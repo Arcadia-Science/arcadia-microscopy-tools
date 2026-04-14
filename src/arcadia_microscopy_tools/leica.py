@@ -75,9 +75,6 @@ def load_lif_image(
 ) -> tuple[UInt16Array, InstrumentMetadata]:
     """Load intensity data and metadata from a Leica LIF file in a single pass.
 
-    Opens the LIF file once to read both pixel data and metadata, avoiding the
-    overhead of parsing the file twice.
-
     Args:
         lif_path: Path to the Leica LIF file.
         image_name: Name of the specific image within the LIF file to extract.

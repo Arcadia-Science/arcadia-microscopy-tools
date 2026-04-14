@@ -44,9 +44,6 @@ def load_nd2(
 ) -> tuple[UInt16Array, InstrumentMetadata]:
     """Load intensity data and metadata from a Nikon ND2 file in a single pass.
 
-    Opens the ND2 file once to read both pixel data and metadata, avoiding the
-    overhead of parsing the file twice.
-
     Args:
         nd2_path: Path to the Nikon ND2 file.
         channels: Optional list of Channel objects to override automatic channel detection.
