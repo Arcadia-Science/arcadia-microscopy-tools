@@ -1,5 +1,7 @@
 import logging
 
+from IPython import get_ipython  # pyright: ignore[reportPrivateImportUsage]
+
 
 def configure_logging(verbose: bool) -> None:
     """Configure the Python logging system with optional verbosity.
@@ -29,11 +31,9 @@ def get_tqdm():
         - tqdm.notebook.tqdm for Jupyter/IPython notebook environments
         - tqdm.tqdm for standard environments
     """
-    try:
-        # Check if inside a notebook environment
-        get_ipython().__class__.__name__  # type: ignore # noqa: B018
+    if get_ipython() is not None:
         from tqdm.notebook import tqdm
-    except NameError:
+    else:
         from tqdm import tqdm
 
     return tqdm
