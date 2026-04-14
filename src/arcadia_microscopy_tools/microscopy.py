@@ -5,8 +5,6 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any
 
-import liffile
-import nd2
 from numpy import uint16
 
 from .channels import Channel
@@ -215,8 +213,9 @@ class MicroscopyImage:
         Returns:
             MicroscopyImage: A new microscopy image with intensity data and metadata.
         """
-        intensities = nd2.imread(nd2_path)
-        instrument_metadata = InstrumentMetadata.from_nd2_path(nd2_path, channels)
+        from .nikon import load_nd2
+
+        intensities, instrument_metadata = load_nd2(nd2_path, channels)
         metadata = Metadata(instrument_metadata, sample_metadata)
         return cls(intensities, metadata)
 
@@ -240,18 +239,9 @@ class MicroscopyImage:
         Returns:
             MicroscopyImage: A new microscopy image with intensity data and metadata.
         """
-        with liffile.LifFile(lif_path) as lif:
-            for image in lif.images:
-                if image.name == image_name:
-                    intensities = image.asarray()
-                    break
-            else:
-                raise ValueError(
-                    f"Image {image_name} not found in {lif_path}. Available images: "
-                    f"{[image.name for image in lif.images]}"
-                )
+        from .leica import load_lif_image
 
-        instrument_metadata = InstrumentMetadata.from_lif_path(lif_path, image_name, channels)
+        intensities, instrument_metadata = load_lif_image(lif_path, image_name, channels)
         metadata = Metadata(instrument_metadata, sample_metadata)
         return cls(intensities, metadata)
 

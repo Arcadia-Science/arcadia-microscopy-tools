@@ -17,7 +17,7 @@ from .metadata_structures import (
     NominalDimensions,
 )
 from .microscopy import InstrumentMetadata
-from .typing import Float64Array
+from .typing import Float64Array, UInt16Array
 
 
 def create_instrument_metadata_from_nd2(
@@ -38,6 +38,30 @@ def create_instrument_metadata_from_nd2(
     return parser.parse()
 
 
+def load_nd2(
+    nd2_path: Path,
+    channels: list[Channel] | None = None,
+) -> tuple[UInt16Array, InstrumentMetadata]:
+    """Load intensity data and metadata from a Nikon ND2 file in a single pass.
+
+    Opens the ND2 file once to read both pixel data and metadata, avoiding the
+    overhead of parsing the file twice.
+
+    Args:
+        nd2_path: Path to the Nikon ND2 file.
+        channels: Optional list of Channel objects to override automatic channel detection.
+            If not provided, channels are inferred from the ND2 file's optical configuration.
+
+    Returns:
+        Tuple of (intensities, instrument_metadata).
+    """
+    parser = _NikonMetadataParser(nd2_path, channels)
+    with nd2.ND2File(nd2_path) as nd2f:
+        intensities = nd2f.asarray()
+        instrument_metadata = parser.parse(nd2f)
+    return intensities, instrument_metadata
+
+
 class _NikonMetadataParser:
     """Parser for extracting metadata from Nikon ND2 files."""
 
@@ -46,17 +70,28 @@ class _NikonMetadataParser:
         self.channels = channels
         self._nd2f: nd2.ND2File
 
-    def parse(self) -> InstrumentMetadata:
-        """Parse the ND2 file and extract all metadata."""
-        with nd2.ND2File(self.nd2_path) as self._nd2f:
-            self.sizes = dict(self._nd2f.sizes)
-            self.text_info = TextInfo(self._nd2f.text_info)
-            self.events = self._nd2f.events()
-            self.dimensions = self._get_dimension_flags()
-            self.timestamp = self._parse_timestamp()
+    def parse(self, nd2f: nd2.ND2File | None = None) -> InstrumentMetadata:
+        """Parse the ND2 file and extract all metadata.
 
-            channel_metadata_list = self._parse_all_channels()
+        Args:
+            nd2f: Optional already-opened ND2File handle. If not provided, the file
+                is opened from self.nd2_path.
+        """
+        if nd2f is not None:
+            return self._extract_metadata(nd2f)
+        with nd2.ND2File(self.nd2_path) as opened:
+            return self._extract_metadata(opened)
 
+    def _extract_metadata(self, nd2f: nd2.ND2File) -> InstrumentMetadata:
+        """Extract all metadata from an open ND2 file handle."""
+        self._nd2f = nd2f
+        self.sizes = dict(self._nd2f.sizes)
+        self.text_info = TextInfo(self._nd2f.text_info)
+        self.events = self._nd2f.events()
+        self.dimensions = self._get_dimension_flags()
+        self.timestamp = self._parse_timestamp()
+
+        channel_metadata_list = self._parse_all_channels()
         return InstrumentMetadata(self.sizes, channel_metadata_list)
 
     def _parse_all_channels(self) -> list[ChannelMetadata]:

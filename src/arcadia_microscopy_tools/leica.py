@@ -20,7 +20,7 @@ from .metadata_structures import (
     NominalDimensions,
 )
 from .microscopy import InstrumentMetadata
-from .typing import Float64Array
+from .typing import Float64Array, UInt16Array
 
 _SI_UNITS: dict[str, float] = {
     "m": 1,
@@ -66,6 +66,41 @@ def create_instrument_metadata_from_lif(
     """
     parser = _LeicaMetadataParser(lif_path, image_name, channels)
     return parser.parse()
+
+
+def load_lif_image(
+    lif_path: Path,
+    image_name: str,
+    channels: list[Channel] | None = None,
+) -> tuple[UInt16Array, InstrumentMetadata]:
+    """Load intensity data and metadata from a Leica LIF file in a single pass.
+
+    Opens the LIF file once to read both pixel data and metadata, avoiding the
+    overhead of parsing the file twice.
+
+    Args:
+        lif_path: Path to the Leica LIF file.
+        image_name: Name of the specific image within the LIF file to extract.
+        channels: Optional list of Channel objects to override automatic channel detection.
+            If not provided, channels are inferred from the LIF file metadata.
+
+    Returns:
+        Tuple of (intensities, instrument_metadata).
+
+    Raises:
+        ValueError: If the specified image is not found in the LIF file.
+    """
+    parser = _LeicaMetadataParser(lif_path, image_name, channels)
+    with liffile.LifFile(lif_path) as lif:
+        available_names = [img.name for img in lif.images]
+        if image_name not in available_names:
+            raise ValueError(
+                f"Image {image_name} not found in {lif_path}. "
+                f"Available images: {available_names}"
+            )
+        intensities = lif.images[image_name].asarray()
+        instrument_metadata = parser.parse(lif)
+    return intensities, instrument_metadata
 
 
 def calculate_raman_shift(
@@ -342,37 +377,44 @@ class _LeicaMetadataParser:
         self.image_description: _ImageDescription
         self.laser_system_state: _LaserSystemState
 
-    def parse(self) -> InstrumentMetadata:
-        """Parse the LIF file and extract all metadata for the specified image."""
-        with liffile.LifFile(self.lif_path) as self._lif:
-            self.image = self._lif.images[self.image_name]
+    def parse(self, lif: liffile.LifFile | None = None) -> InstrumentMetadata:
+        """Parse the LIF file and extract all metadata for the specified image.
 
-            # Validate critical metadata exists
-            if not hasattr(self.image, "attrs"):
-                raise ValueError(
-                    f"Missing attrs metadata for image '{self.image_name}' in {self.lif_path}"
-                )
+        Args:
+            lif: Optional already-opened LifFile handle. If not provided, the file
+                is opened from self.lif_path.
+        """
+        if lif is not None:
+            return self._extract_metadata(lif)
+        with liffile.LifFile(self.lif_path) as opened:
+            return self._extract_metadata(opened)
 
-            self.sizes = self.image.sizes
-            self.dimensions = self.get_dimension_flags()
-            self.timestamp = self.parse_timestamp()
+    def _extract_metadata(self, lif: liffile.LifFile) -> InstrumentMetadata:
+        """Extract all metadata from an open LIF file handle."""
+        self._lif = lif
+        self.image = self._lif.images[self.image_name]
 
-            # Parse image description
-            self.image_description = self.parse_image_description()
-
-            # Parse laser system state
-            self.laser_system_state = self.parse_laser_array_data()
-
-            # Parse image-level metadata once, shared across all channels
-            resolution = self.parse_nominal_dimensions()
-            measured = self.parse_measured_dimensions()
-            acquisition = self.parse_acquisition_settings()
-            optics = self.parse_microscope_settings()
-
-            channel_metadata_list = self.parse_all_channels(
-                resolution, measured, acquisition, optics
+        if not hasattr(self.image, "attrs"):
+            raise ValueError(
+                f"Missing attrs metadata for image '{self.image_name}' in {self.lif_path}"
             )
-            return InstrumentMetadata(self.sizes, channel_metadata_list)
+
+        self.sizes = self.image.sizes
+        self.dimensions = self.get_dimension_flags()
+        self.timestamp = self.parse_timestamp()
+
+        self.image_description = self.parse_image_description()
+        self.laser_system_state = self.parse_laser_array_data()
+
+        resolution = self.parse_nominal_dimensions()
+        measured = self.parse_measured_dimensions()
+        acquisition = self.parse_acquisition_settings()
+        optics = self.parse_microscope_settings()
+
+        channel_metadata_list = self.parse_all_channels(
+            resolution, measured, acquisition, optics
+        )
+        return InstrumentMetadata(self.sizes, channel_metadata_list)
 
     def parse_image_description(self) -> _ImageDescription:
         """Parse the ImageDescription XML element into structured data.
