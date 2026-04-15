@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
+import numpy as np
 from arcadia_pycolor import HexCode
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import LinearSegmentedColormap, Normalize
@@ -18,7 +19,7 @@ class Layer:
         channel: Channel object containing color and metadata.
         intensities: 2D array of intensity values in [0, 1].
         opacity: Global opacity multiplier for this layer in [0, 1]. Default is 1 (fully opaque).
-        transparent: If True (default), colormap goes from transparent white to channel color.
+        transparent: If True (default), colormap goes from transparent to channel color.
             If False, colormap goes from black to channel color.
     """
 
@@ -28,9 +29,14 @@ class Layer:
     transparent: bool = True
 
     def __post_init__(self) -> None:
-        """Validate that the channel has a color defined."""
         if self.channel.color is None:
             raise ValueError(f"Channel '{self.channel.name}' has no color defined")
+        if self.intensities.ndim != 2:
+            raise ValueError(
+                f"Expected 2D intensities array, got shape {self.intensities.shape}"
+            )
+        if not 0 <= self.opacity <= 1:
+            raise ValueError(f"Opacity must be in [0, 1], got {self.opacity}")
 
 
 def overlay_channels(
@@ -48,7 +54,7 @@ def overlay_channels(
         channel_intensities: Dict mapping Channel objects to their intensity arrays
             (2D, values in [0, 1]).
         opacity: Global opacity multiplier for all channels. Default is 1 (fully opaque).
-        transparent: If True (default), all colormaps go from transparent white to channel color.
+        transparent: If True (default), all colormaps go from transparent to channel color.
             If False, all colormaps go from black to channel color.
 
     Returns:
@@ -85,6 +91,9 @@ def create_sequential_overlay(
     Returns:
         RGB image (HxWx3 array) with all layers alpha-blended onto background.
 
+    Raises:
+        ValueError: If background is not a 2D array.
+
     Example:
         >>> # Fine-grained control over each layer
         >>> overlay = create_sequential_overlay(
@@ -96,10 +105,15 @@ def create_sequential_overlay(
         ...     ]
         ... )
     """
+    if background.ndim != 2:
+        raise ValueError(
+            f"Expected 2D background array, got shape {background.shape}"
+        )
+
     result = gray2rgb(background)
 
     for layer in layers:
-        colormap = channel_to_colormap(layer.channel, transparent=layer.transparent)
+        colormap = _channel_to_colormap(layer.channel, transparent=layer.transparent)
         foreground_rgba = colorize(layer.intensities, colormap)
         foreground_rgb = foreground_rgba[..., :3]
         alpha = layer.opacity * foreground_rgba[..., 3:4]
@@ -121,9 +135,10 @@ def alpha_blend(
         alpha: Alpha channel values in [0, 1]. Can be per-pixel (HxWx1 array) or scalar.
 
     Returns:
-        Blended image.
+        Blended image with values clipped to [0, 1].
     """
-    return alpha * foreground + (1 - alpha) * background
+    result = alpha * foreground + (1 - alpha) * background
+    return np.clip(result, 0, 1)
 
 
 def colorize(
@@ -150,18 +165,18 @@ def colorize(
 
     norm = Normalize(vmin=0, vmax=1)
     mapper = ScalarMappable(norm=norm, cmap=colormap)
-    return mapper.to_rgba(intensities)
+    return mapper.to_rgba(intensities).astype(np.float64)
 
 
-def channel_to_colormap(
+def _channel_to_colormap(
     channel: Channel,
     transparent: bool = True,
 ) -> LinearSegmentedColormap:
     """Convert a Channel to a matplotlib colormap.
 
     Args:
-        channel: Channel object containing color information.
-        transparent: If True (default), creates a colormap from transparent white to channel color.
+        channel: Channel object containing color information. Must have a color defined.
+        transparent: If True (default), creates a colormap from transparent to channel color.
             If False, creates a colormap from black to channel color.
 
     Returns:
@@ -170,27 +185,15 @@ def channel_to_colormap(
     Raises:
         ValueError: If the channel has no color defined.
     """
+    if channel.color is None:
+        raise ValueError(f"Channel '{channel.name}' has no color defined")
     if transparent:
-        return channel_to_semitransparent_colormap(channel)
+        return _create_semitransparent_colormap(color=channel.color, name=channel.name)
     else:
-        return channel_to_opaque_colormap(channel)
+        return _create_opaque_colormap(color=channel.color, name=channel.name)
 
 
-def channel_to_opaque_colormap(channel: Channel) -> LinearSegmentedColormap:
-    """Create an opaque colormap from a Channel's color."""
-    if channel.color is None:
-        raise ValueError(f"Channel '{channel.name}' has no color")
-    return create_opaque_colormap(color=channel.color, name=channel.name)
-
-
-def channel_to_semitransparent_colormap(channel: Channel) -> LinearSegmentedColormap:
-    """Create a semi-transparent colormap from a Channel's color."""
-    if channel.color is None:
-        raise ValueError(f"Channel '{channel.name}' has no color")
-    return create_semitransparent_colormap(color=channel.color, name=channel.name)
-
-
-def create_opaque_colormap(
+def _create_opaque_colormap(
     color: HexCode,
     name: str | None = None,
 ) -> LinearSegmentedColormap:
@@ -200,19 +203,23 @@ def create_opaque_colormap(
         color.hex_code,
     ]
     name = color.name if name is None else name
-    colormap = LinearSegmentedColormap.from_list(name, colors)
-    return colormap
+    return LinearSegmentedColormap.from_list(name, colors)
 
 
-def create_semitransparent_colormap(
+def _create_semitransparent_colormap(
     color: HexCode,
     name: str | None = None,
 ) -> LinearSegmentedColormap:
-    """Create a semi-transparent colormap for the given color."""
+    """Create a semi-transparent colormap for the given color.
+
+    The zero-point anchors at a neutral gray (0.5, 0.5, 0.5) with full transparency rather
+    than black (0, 0, 0). This was chosen empirically: on typical grayscale brightfield
+    backgrounds, a gray anchor produces smoother blending and avoids the dark halos that a
+    black anchor introduces around low-signal regions.
+    """
     colors = [
-        (1, 1, 1, 0),
+        (0.5, 0.5, 0.5, 0),
         color.hex_code,
     ]
     name = color.name if name is None else name
-    colormap = LinearSegmentedColormap.from_list(name, colors)
-    return colormap
+    return LinearSegmentedColormap.from_list(name, colors)
