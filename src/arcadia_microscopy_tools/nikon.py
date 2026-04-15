@@ -7,7 +7,7 @@ import nd2
 import pandas as pd
 from nd2.structures import TextInfo
 
-from .channels import Channel
+from .channels import BRIGHTFIELD, CHANNELS, FITC, Channel
 from .metadata_structures import (
     AcquisitionSettings,
     ChannelMetadata,
@@ -57,6 +57,39 @@ def load_nd2(
         intensities = nd2f.asarray()
         instrument_metadata = parser.parse(nd2f)
     return intensities, instrument_metadata
+
+
+_OPTICAL_CONFIG_ALIASES: dict[str, Channel] = {
+    "MONO": BRIGHTFIELD,
+    "GFP": FITC,
+}
+
+
+def _resolve_optical_config(optical_config: str) -> Channel:
+    """Resolve a Nikon optical configuration name to a Channel.
+
+    Matching order:
+        1. Exact match against known channel names (case-insensitive).
+        2. Nikon-specific aliases (e.g. "Mono" → BRIGHTFIELD, "GFP" → FITC).
+        3. Longest substring match against known channel names.
+
+    Raises:
+        ValueError: If no match is found.
+    """
+    key = optical_config.upper()
+
+    if key in CHANNELS:
+        return CHANNELS[key]
+
+    for alias, channel in _OPTICAL_CONFIG_ALIASES.items():
+        if alias in key:
+            return channel
+
+    matches = [name for name in CHANNELS if name in key]
+    if matches:
+        return CHANNELS[max(matches, key=len)]
+
+    raise ValueError(f"'{optical_config}' is not a recognized optical configuration.")
 
 
 class _NikonMetadataParser:
@@ -120,7 +153,7 @@ class _NikonMetadataParser:
         nd2_channel = self._get_nd2_channel_metadata(channel_index)
 
         if channel is None:
-            channel = Channel.from_optical_config_name(nd2_channel.channel.name)
+            channel = _resolve_optical_config(nd2_channel.channel.name)
 
         resolution = self._parse_nominal_dimensions(nd2_channel)
         measured = self._parse_measured_dimensions()
