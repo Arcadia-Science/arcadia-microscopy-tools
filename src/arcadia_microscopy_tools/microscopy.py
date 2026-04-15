@@ -128,8 +128,8 @@ class Metadata:
         channels = [cm.channel.name for cm in self.instrument.channel_metadata_list]
         sample_str = f", sample={self.sample}" if self.sample else ""
         return (
-            f"Metadata(sizes={self.instrument.sizes}, "
-            f"channels={channels}{sample_str})"
+            f"<Metadata sizes={self.instrument.sizes}, "
+            f"channels={channels}{sample_str}>"
         )
 
 
@@ -194,7 +194,7 @@ class MicroscopyImage:
         channels_str = f"channels={[channel.name for channel in self.channels]}"
         info = f"{sizes_str}, {channels_str}, {intensity_str}, {dtype_str}"
 
-        return f"MicroscopyImage({info})"
+        return f"<MicroscopyImage {info}>"
 
     @classmethod
     def from_nd2_path(
