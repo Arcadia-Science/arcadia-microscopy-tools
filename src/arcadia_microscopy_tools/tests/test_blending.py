@@ -202,6 +202,20 @@ class TestCreateOverlay:
         with pytest.raises(ValueError, match="Expected 2D background"):
             create_overlay(bg_3d, [])
 
+    def test_out_of_range_background_warns_and_clips(self):
+        bg = np.array([[0.0, 2.0], [-0.5, 0.5]], dtype=np.float64)
+        with pytest.warns(match="outside \\[0, 1\\]"):
+            result = create_overlay(bg, [])
+        assert result.min() >= 0.0
+        assert result.max() <= 1.0
+
+    def test_in_range_background_no_warning(self, background):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            create_overlay(background, [])
+
     def test_mismatched_shape_raises(self, background):
         wrong_shape = np.ones((8, 8), dtype=np.float64)
         with pytest.raises(ValueError, match="shape"):

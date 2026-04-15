@@ -145,6 +145,15 @@ def create_overlay(
     if background.ndim != 2:
         raise ValueError(f"Expected 2D background array, got shape {background.shape}")
 
+    lo, hi = float(background.min()), float(background.max())
+    if lo < 0.0 or hi > 1.0:
+        warnings.warn(
+            f"Background has values outside [0, 1] (min={lo:.4g}, max={hi:.4g}). "
+            f"Values will be clipped, which may indicate missing normalization.",
+            stacklevel=2,
+        )
+        background = np.clip(background, 0.0, 1.0)
+
     canvas = _gray_to_rgb(background)
 
     for layer in layers:
