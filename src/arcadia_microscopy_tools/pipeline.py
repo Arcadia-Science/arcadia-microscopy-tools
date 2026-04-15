@@ -75,7 +75,7 @@ class Pipeline:
             Ignored when parallel=True (the output is always a new array).
         preserve_dtype: If True, forces output to have the same dtype as input. If False,
             allows dtype to change based on operations (e.g., uint16 -> float64 for
-            normalization). Default is True.
+            normalization). Default is False.
         parallel: If True, applies operations to each slice along the first axis in
             parallel using ThreadPoolExecutor. Useful for timelapse, z-stack, or
             multi-channel data. Requires at least 3D input. Default is False.
@@ -91,7 +91,7 @@ class Pipeline:
 
     operations: list[ImageOperation]
     copy: bool = False
-    preserve_dtype: bool = True
+    preserve_dtype: bool = False
     parallel: bool = False
     max_workers: int | None = None
 
@@ -163,8 +163,8 @@ class Pipeline:
         params = []
         if self.copy:
             params.append("copy=True")
-        if not self.preserve_dtype:
-            params.append("preserve_dtype=False")
+        if self.preserve_dtype:
+            params.append("preserve_dtype=True")
         if self.parallel:
             params.append("parallel=True")
         if self.max_workers is not None:

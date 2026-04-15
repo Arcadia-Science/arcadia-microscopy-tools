@@ -88,7 +88,7 @@ class TestPipeline:
         pipeline = Pipeline(operations=ops)
         assert len(pipeline) == 2
         assert pipeline.copy is False
-        assert pipeline.preserve_dtype is True
+        assert pipeline.preserve_dtype is False
         assert pipeline.parallel is False
 
     def test_create_pipeline_with_copy(self):
@@ -120,19 +120,19 @@ class TestPipeline:
         assert result.dtype == np.uint16
 
     def test_pipeline_preserve_dtype_default(self):
-        """Test that dtype is preserved by default when it changes."""
+        """Test that dtype can change by default when operations produce a different dtype."""
         pipeline = Pipeline(operations=[ImageOperation(to_float_normalized)])
-        image = np.array([10, 20, 30], dtype=np.uint16)
-        result = pipeline(image)
-        assert result.dtype == np.uint16
-
-    def test_pipeline_preserve_dtype_false(self):
-        """Test that dtype can change when preserve_dtype=False."""
-        pipeline = Pipeline(operations=[ImageOperation(to_float_normalized)], preserve_dtype=False)
         image = np.array([10, 20, 30], dtype=np.uint16)
         result = pipeline(image)
         assert result.dtype in (np.float32, np.float64)
         np.testing.assert_allclose(result, [1 / 3, 2 / 3, 1.0])
+
+    def test_pipeline_preserve_dtype_true(self):
+        """Test that dtype is preserved when preserve_dtype=True."""
+        pipeline = Pipeline(operations=[ImageOperation(to_float_normalized)], preserve_dtype=True)
+        image = np.array([10, 20, 30], dtype=np.uint16)
+        result = pipeline(image)
+        assert result.dtype == np.uint16
 
     def test_pipeline_with_2d_image(self):
         """Test pipeline with 2D image arrays."""
@@ -217,20 +217,20 @@ class TestPipelineParallel:
         assert result.dtype == np.uint16
 
     def test_parallel_preserve_dtype_default(self):
-        """Test that dtype is preserved by default."""
+        """Test that dtype can change by default in parallel mode."""
         pipeline = Pipeline(operations=[ImageOperation(to_float_normalized)], parallel=True)
         image = np.array([[[10, 20], [30, 40]]], dtype=np.uint16)
         result = pipeline(image)
-        assert result.dtype == np.uint16
+        assert result.dtype in (np.float32, np.float64)
 
-    def test_parallel_preserve_dtype_false(self):
-        """Test that dtype can change when preserve_dtype=False."""
+    def test_parallel_preserve_dtype_true(self):
+        """Test that dtype is preserved when preserve_dtype=True in parallel mode."""
         pipeline = Pipeline(
-            operations=[ImageOperation(to_float_normalized)], preserve_dtype=False, parallel=True
+            operations=[ImageOperation(to_float_normalized)], preserve_dtype=True, parallel=True
         )
         image = np.array([[[10, 20], [30, 40]]], dtype=np.uint16)
         result = pipeline(image)
-        assert result.dtype in (np.float32, np.float64)
+        assert result.dtype == np.uint16
 
     def test_parallel_multiple_operations(self):
         """Test multiple operations in parallel pipeline."""
