@@ -1,14 +1,13 @@
 import warnings
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
 from .typing import ScalarArray
 
 
-@dataclass(frozen=True)
 class ImageOperation:
     """A callable wrapper for image processing functions.
 
@@ -17,13 +16,22 @@ class ImageOperation:
 
     Args:
         func: The image processing function to wrap.
-        args: Positional arguments to pass to the function.
-        kwargs: Keyword arguments to pass to the function.
+        *args: Positional arguments to pass to the function.
+        **kwargs: Keyword arguments to pass to the function.
     """
 
-    func: Callable[..., ScalarArray]
-    args: tuple = ()
-    kwargs: dict = field(default_factory=dict)
+    __slots__ = ("func", "args", "kwargs")
+
+    def __init__(self, func: Callable[..., ScalarArray], *args: object, **kwargs: object) -> None:
+        object.__setattr__(self, "func", func)
+        object.__setattr__(self, "args", args)
+        object.__setattr__(self, "kwargs", kwargs)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("ImageOperation instances are immutable")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("ImageOperation instances are immutable")
 
     def __call__(self, intensities: ScalarArray) -> ScalarArray:
         """Apply the operation to an image.
@@ -35,6 +43,14 @@ class ImageOperation:
             ScalarArray: The processed image intensity array.
         """
         return self.func(intensities, *self.args, **self.kwargs)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ImageOperation):
+            return NotImplemented
+        return self.func == other.func and self.args == other.args and self.kwargs == other.kwargs
+
+    def __hash__(self) -> int:
+        return hash((self.func, self.args, tuple(sorted(self.kwargs.items()))))
 
     def __repr__(self) -> str:
         """Create a string representation of the operation."""
@@ -53,7 +69,7 @@ class Pipeline:
     first axis of multi-dimensional data (e.g., timelapse, z-stacks).
 
     Attributes:
-        operations: Tuple of ImageOperation instances to apply in sequence.
+        operations: List of ImageOperation instances to apply in sequence.
         copy: If True, creates a copy of the input array before processing. If False,
             operations are applied directly to the input. Default is False for performance.
             Ignored when parallel=True (the output is always a new array).
@@ -73,7 +89,7 @@ class Pipeline:
         from parallelization due to the Global Interpreter Lock.
     """
 
-    operations: tuple[ImageOperation, ...]
+    operations: list[ImageOperation]
     copy: bool = False
     preserve_dtype: bool = True
     parallel: bool = False
@@ -81,8 +97,8 @@ class Pipeline:
 
     def __post_init__(self) -> None:
         """Validate the pipeline configuration."""
-        if isinstance(self.operations, list):
-            object.__setattr__(self, "operations", tuple(self.operations))
+        if isinstance(self.operations, tuple):
+            self.operations = list(self.operations)
         if not self.operations:
             raise ValueError("Pipeline must have at least one operation")
         if not all(callable(op) for op in self.operations):

@@ -34,12 +34,12 @@ class TestImageOperation:
         assert op.kwargs == {}
 
     def test_create_operation_with_args(self):
-        op = ImageOperation(np.add, args=(5,))
+        op = ImageOperation(np.add, 5)
         assert op.func == np.add
         assert op.args == (5,)
 
     def test_create_operation_with_kwargs(self):
-        op = ImageOperation(np.clip, kwargs={"a_min": 0, "a_max": 100})
+        op = ImageOperation(np.clip, a_min=0, a_max=100)
         assert op.kwargs == {"a_min": 0, "a_max": 100}
 
     def test_call_operation(self):
@@ -49,7 +49,7 @@ class TestImageOperation:
         np.testing.assert_array_equal(result, [2, 4, 6])
 
     def test_call_operation_with_args(self):
-        op = ImageOperation(np.add, args=(10,))
+        op = ImageOperation(np.add, 10)
         image = np.array([1, 2, 3])
         result = op(image)
         np.testing.assert_array_equal(result, [11, 12, 13])
@@ -74,11 +74,11 @@ class TestImageOperation:
         assert op1 != op2
 
     def test_equality_with_args(self):
-        op1 = ImageOperation(np.add, args=(5,))
-        op2 = ImageOperation(np.add, args=(5,))
+        op1 = ImageOperation(np.add, 5)
+        op2 = ImageOperation(np.add, 5)
         assert op1 == op2
 
-        op3 = ImageOperation(np.add, args=(10,))
+        op3 = ImageOperation(np.add, 10)
         assert op1 != op3
 
 
@@ -142,11 +142,11 @@ class TestPipeline:
         expected = np.array([[2, 4], [6, 8]], dtype=np.uint16)
         np.testing.assert_array_equal(result, expected)
 
-    def test_operations_coerced_to_tuple(self):
-        """Test that a list of operations is converted to a tuple."""
-        ops = [ImageOperation(double_intensity)]
+    def test_operations_coerced_to_list(self):
+        """Test that a tuple of operations is converted to a list."""
+        ops = (ImageOperation(double_intensity),)
         pipeline = Pipeline(operations=ops)  # type: ignore[arg-type]
-        assert isinstance(pipeline.operations, tuple)
+        assert isinstance(pipeline.operations, list)
 
     def test_max_workers_validation(self):
         """Test that max_workers must be at least 1."""
@@ -271,12 +271,9 @@ class TestPipelineIntegration:
         image = np.random.randint(0, 65535, size=(3, 128, 128), dtype=np.uint16)
 
         pipeline = Pipeline(
-            operations=(
-                ImageOperation(
-                    rescale_by_percentile,
-                    kwargs={"percentile_range": (2, 98), "out_range": (0, 1)},
-                ),
-            ),
+            operations=[
+                ImageOperation(rescale_by_percentile, percentile_range=(2, 98), out_range=(0, 1)),
+            ],
             preserve_dtype=False,
             parallel=True,
         )
@@ -294,12 +291,9 @@ class TestPipelineIntegration:
         image = np.random.randint(0, 65535, size=(3, 128, 128), dtype=np.uint16)
 
         pipeline = Pipeline(
-            operations=(
-                ImageOperation(
-                    rescale_by_percentile,
-                    kwargs={"percentile_range": (2, 98), "out_range": (0, 65535)},
-                ),
-            ),
+            operations=[
+                ImageOperation(rescale_by_percentile, percentile_range=(2, 98), out_range=(0, 65535)),
+            ],
             preserve_dtype=True,
             parallel=True,
         )
@@ -318,15 +312,10 @@ class TestPipelineIntegration:
         image = np.random.randint(100, 200, size=(2, 64, 64), dtype=np.uint16)
 
         pipeline = Pipeline(
-            operations=(
-                ImageOperation(
-                    subtract_background_dog, kwargs={"low_sigma": 1, "high_sigma": 10}
-                ),
-                ImageOperation(
-                    rescale_by_percentile,
-                    kwargs={"percentile_range": (1, 99), "out_range": (0, 1)},
-                ),
-            ),
+            operations=[
+                ImageOperation(subtract_background_dog, low_sigma=1, high_sigma=10),
+                ImageOperation(rescale_by_percentile, percentile_range=(1, 99), out_range=(0, 1)),
+            ],
             preserve_dtype=False,
             parallel=True,
         )
