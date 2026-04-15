@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-from arcadia_pycolor import HexCode
 from matplotlib.colors import LinearSegmentedColormap
 
 from arcadia_microscopy_tools.blending import (
@@ -12,11 +11,8 @@ from arcadia_microscopy_tools.blending import (
 )
 from arcadia_microscopy_tools.channels import Channel
 
-BLUE = HexCode("blue", "#0000FF")
-GREEN = HexCode("green", "#00FF00")
-
-CHAN_BLUE = Channel(name="Blue", color=BLUE)
-CHAN_GREEN = Channel(name="Green", color=GREEN)
+CHAN_BLUE = Channel("Blue", "#0000FF")
+CHAN_GREEN = Channel("Green", "#00FF00")
 
 
 @pytest.fixture
