@@ -93,8 +93,7 @@ def load_lif_image(
         available_names = [img.name for img in lif.images]
         if image_name not in available_names:
             raise ValueError(
-                f"Image {image_name} not found in {lif_path}. "
-                f"Available images: {available_names}"
+                f"Image {image_name} not found in {lif_path}. Available images: {available_names}"
             )
         intensities = lif.images[image_name].asarray()
         instrument_metadata = parser.parse(lif)
@@ -409,9 +408,7 @@ class _LeicaMetadataParser:
         acquisition = self.parse_acquisition_settings()
         optics = self.parse_microscope_settings()
 
-        channel_metadata_list = self.parse_all_channels(
-            resolution, measured, acquisition, optics
-        )
+        channel_metadata_list = self.parse_all_channels(resolution, measured, acquisition, optics)
         return InstrumentMetadata(self.sizes, channel_metadata_list)
 
     def parse_image_description(self) -> _ImageDescription:
@@ -542,7 +539,7 @@ class _LeicaMetadataParser:
         # Can reasonably infer channel only in the case where either the UV or WLL laser is ON
         excitation_wavelength_nm = self.extract_wavelength_value(laser_state.WavelengthDouble)
         try:
-            return Channel.from_excitation_wavelength(
+            return Channel.from_wavelength(
                 excitation_wavelength_nm, name=laser_state.LightSourceType.name
             )
         except ValueError:
@@ -552,7 +549,8 @@ class _LeicaMetadataParser:
                 MetadataWarning,
                 stacklevel=2,
             )
-            return Channel(name=laser_state.LightSourceType.name)
+            # NIR lasers are typically in the 700-1400nm range, assign a dark red color
+            return Channel(name=laser_state.LightSourceType.name, color="#8B0000")
 
     def infer_channel_from_detector(
         self,
