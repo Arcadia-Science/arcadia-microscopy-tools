@@ -93,6 +93,7 @@ class Pipeline:
             warnings.warn(
                 "copy=True has no effect when parallel=True. "
                 "Parallel mode always produces a new output array.",
+                UserWarning,
                 stacklevel=2,
             )
 

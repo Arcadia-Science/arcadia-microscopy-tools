@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import torch
 
+from arcadia_microscopy_tools.exceptions import SegmentationWarning
 from arcadia_microscopy_tools.model import SegmentationModel
 
 
@@ -317,8 +318,8 @@ class TestSegmentationModel:
             np.random.rand(100, 100),
         ]
 
-        # Run batch segmentation
-        results = model.batch_segment(batch_data)
+        with pytest.warns(SegmentationWarning, match="Segmentation failed"):
+            results = model.batch_segment(batch_data)
 
         # Verify results - failed image should be None
         assert len(results) == 3

@@ -8,6 +8,7 @@ from typing import Any
 from numpy import uint16
 
 from .channels import Channel
+from .exceptions import MetadataWarning
 from .metadata_structures import ChannelMetadata, DimensionFlags
 from .pipeline import Pipeline
 from .typing import ScalarArray, UInt16Array
@@ -170,7 +171,7 @@ class MicroscopyImage:
             warnings.warn(
                 f"Expected uint16 intensities, got {self.intensities.dtype}. "
                 f"Some operations may behave unexpectedly.",
-                UserWarning,
+                MetadataWarning,
                 stacklevel=2,
             )
 

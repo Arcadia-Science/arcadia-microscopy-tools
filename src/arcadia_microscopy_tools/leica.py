@@ -11,6 +11,7 @@ import numpy as np
 from pydantic import BaseModel, computed_field
 
 from .channels import BRIGHTFIELD, E_CARS, E_SHG, F_CARS, F_SHG, SRS, Channel
+from .exceptions import MetadataWarning
 from .metadata_structures import (
     AcquisitionSettings,
     ChannelMetadata,
@@ -548,6 +549,7 @@ class _LeicaMetadataParser:
             warnings.warn(
                 f"Parsed excitation wavelength {excitation_wavelength_nm} nm outside accepted "
                 "range for Channel inference. Pass a Channel instance to prevent this warning.",
+                MetadataWarning,
                 stacklevel=2,
             )
             return Channel(name=laser_state.LightSourceType.name)
@@ -595,7 +597,7 @@ class _LeicaMetadataParser:
             (detector_name, beam_route)
         ) or self._CHANNEL_AMBIGUITY_WARNINGS.get((detector_name, None))
         if warning_msg:
-            warnings.warn(warning_msg, stacklevel=2)
+            warnings.warn(warning_msg, MetadataWarning, stacklevel=2)
 
         # For SRS, (E/F)CARS, and (E/F)SHG calculate wavelengths from CRS laser
         if channel in self._CRS_LASER_MODALITIES:
@@ -658,7 +660,8 @@ class _LeicaMetadataParser:
         except IndexError:
             warnings.warn(
                 f"Could not parse timestamp for image '{self.image_name}' in {self.lif_path}. "
-                "Let's pretend it happened during the moon landing. Image could be corrupted.",
+                "Defaulting to a placeholder timestamp. Image metadata may be corrupted.",
+                MetadataWarning,
                 stacklevel=2,
             )
             return datetime(1969, 7, 20, 20, 17)
@@ -691,6 +694,7 @@ class _LeicaMetadataParser:
             warnings.warn(
                 f"X ({x_step_um:.4f} µm) and Y ({y_step_um:.4f} µm) pixel steps differ by more "
                 "than 1%; using average for xy_step_um.",
+                MetadataWarning,
                 stacklevel=2,
             )
         xy_step_um = (x_step_um + y_step_um) / 2

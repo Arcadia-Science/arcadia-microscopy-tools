@@ -1,4 +1,5 @@
 import logging
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, TypedDict
@@ -7,6 +8,7 @@ import numpy as np
 import torch
 from cellpose.models import CellposeModel
 
+from .exceptions import SegmentationWarning
 from .typing import Float64Array, Int64Array
 from .utils import get_tqdm
 
@@ -251,11 +253,15 @@ class SegmentationModel:
         Raises:
             ValueError: If parameters are out of valid ranges.
 
+        Warns:
+            SegmentationWarning: Emitted for each image where segmentation fails.
+                The corresponding entry in the output list will be None.
+
         Notes:
             All images are processed with the same parameters, which are resolved and
             validated once before processing. Each image is processed independently.
-            If segmentation fails for an image, the error is logged and None is returned
-            for that image, but processing continues for remaining images.
+            If segmentation fails for an image, a SegmentationWarning is emitted and
+            None is returned for that image, but processing continues for remaining images.
         """
         cellpose_params = self._resolve_and_validate_parameters(
             cell_diameter_px, flow_threshold, cellprob_threshold, num_iterations, batch_size
@@ -274,7 +280,11 @@ class SegmentationModel:
                 )
                 masks.append(mask.astype(np.int64))
             except Exception as e:
-                logger.error(f"Cellpose segmentation failed on image {i}: {e}")
+                warnings.warn(
+                    f"Cellpose segmentation failed on image {i}: {e}",
+                    SegmentationWarning,
+                    stacklevel=2,
+                )
                 masks.append(None)
 
         return masks
