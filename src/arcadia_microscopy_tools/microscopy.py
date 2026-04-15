@@ -127,10 +127,7 @@ class Metadata:
         """Return a concise string representation of the metadata."""
         channels = [cm.channel.name for cm in self.instrument.channel_metadata_list]
         sample_str = f", sample={self.sample}" if self.sample else ""
-        return (
-            f"<Metadata sizes={self.instrument.sizes}, "
-            f"channels={channels}{sample_str}>"
-        )
+        return f"<Metadata sizes={self.instrument.sizes}, channels={channels}{sample_str}>"
 
 
 @dataclass

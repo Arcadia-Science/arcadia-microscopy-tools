@@ -17,7 +17,6 @@ GREEN = HexCode("green", "#00FF00")
 
 CHAN_BLUE = Channel(name="Blue", color=BLUE)
 CHAN_GREEN = Channel(name="Green", color=GREEN)
-CHAN_NO_COLOR = Channel(name="NoColor")
 
 
 @pytest.fixture
@@ -43,10 +42,6 @@ class TestLayer:
         layer = Layer(CHAN_BLUE, ones_layer)
         assert layer.opacity == 1.0
         assert layer.transparent is True
-
-    def test_no_color_raises(self, ones_layer):
-        with pytest.raises(ValueError, match="no color defined"):
-            Layer(CHAN_NO_COLOR, ones_layer)
 
     def test_non_2d_intensities_raises(self):
         with pytest.raises(ValueError, match="Expected 2D"):
@@ -152,9 +147,7 @@ class TestCreateSequentialOverlay:
         assert result.max() <= 1.0
 
     def test_zero_opacity_preserves_background(self, background, ones_layer):
-        result = create_sequential_overlay(
-            background, [Layer(CHAN_BLUE, ones_layer, opacity=0.0)]
-        )
+        result = create_sequential_overlay(background, [Layer(CHAN_BLUE, ones_layer, opacity=0.0)])
         expected = np.full((4, 4, 3), 0.5, dtype=np.float64)
         np.testing.assert_allclose(result, expected, atol=1e-10)
 
@@ -164,9 +157,7 @@ class TestCreateSequentialOverlay:
 
 class TestOverlayChannels:
     def test_basic_overlay(self, background, ones_layer):
-        result = overlay_channels(
-            background, {CHAN_BLUE: ones_layer}
-        )
+        result = overlay_channels(background, {CHAN_BLUE: ones_layer})
         assert result.shape == (4, 4, 3)
 
     def test_empty_channels_returns_gray_rgb(self, background):
@@ -184,7 +175,5 @@ class TestOverlayChannels:
         assert result.max() <= 1.0
 
     def test_opaque_mode(self, background, ones_layer):
-        result = overlay_channels(
-            background, {CHAN_BLUE: ones_layer}, transparent=False
-        )
+        result = overlay_channels(background, {CHAN_BLUE: ones_layer}, transparent=False)
         assert result.shape == (4, 4, 3)

@@ -292,7 +292,9 @@ class TestPipelineIntegration:
 
         pipeline = Pipeline(
             operations=[
-                ImageOperation(rescale_by_percentile, percentile_range=(2, 98), out_range=(0, 65535)),
+                ImageOperation(
+                    rescale_by_percentile, percentile_range=(2, 98), out_range=(0, 65535)
+                ),
             ],
             preserve_dtype=True,
             parallel=True,

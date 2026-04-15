@@ -32,9 +32,7 @@ class Layer:
         if self.channel.color is None:
             raise ValueError(f"Channel '{self.channel.name}' has no color defined")
         if self.intensities.ndim != 2:
-            raise ValueError(
-                f"Expected 2D intensities array, got shape {self.intensities.shape}"
-            )
+            raise ValueError(f"Expected 2D intensities array, got shape {self.intensities.shape}")
         if not 0 <= self.opacity <= 1:
             raise ValueError(f"Opacity must be in [0, 1], got {self.opacity}")
 
@@ -106,9 +104,7 @@ def create_sequential_overlay(
         ... )
     """
     if background.ndim != 2:
-        raise ValueError(
-            f"Expected 2D background array, got shape {background.shape}"
-        )
+        raise ValueError(f"Expected 2D background array, got shape {background.shape}")
 
     result = gray2rgb(background)
 
