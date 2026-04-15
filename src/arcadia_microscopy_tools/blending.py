@@ -1,13 +1,32 @@
 from __future__ import annotations
+import warnings
 from dataclasses import dataclass
+from enum import Enum
+from functools import lru_cache
 
 import numpy as np
-from matplotlib.cm import ScalarMappable
-from matplotlib.colors import LinearSegmentedColormap, Normalize
-from skimage.color import gray2rgb
+from matplotlib.colors import LinearSegmentedColormap
 
 from .channels import Channel
 from .typing import Float64Array
+
+
+class BlendMode(Enum):
+    """How a foreground layer is composited onto the canvas.
+
+    ALPHA:
+        Standard Porter-Duff "over" compositing.  The foreground replaces the
+        background in proportion to alpha.  Layer order matters.
+
+    ADDITIVE:
+        The foreground contribution is *added* to the background, then
+        clipped.  This is the physically-motivated model for fluorescence:
+        each fluorophore contributes light independently, so contributions
+        from overlapping channels accumulate.  Layer order does not matter.
+    """
+
+    ALPHA = "alpha"
+    ADDITIVE = "additive"
 
 
 @dataclass
@@ -18,14 +37,21 @@ class Layer:
         channel: Channel providing color and identity.
         intensities: 2D array of intensity values in [0, 1].
         opacity: Global opacity multiplier in [0, 1]. Default is 1 (fully opaque).
-        transparent: If True (default), colormap fades from transparent to channel color.
-            If False, colormap fades from black to channel color.
+        zero_transparent: If True (default), the colormap fades from fully
+            transparent at zero intensity to the channel color at full intensity.
+            If False, the colormap fades from black to the channel color (no
+            transparency is applied; useful when there is no meaningful
+            background to show through).
+        blend_mode: How this layer is composited onto the canvas.
+            Default is ``ADDITIVE`` -- the standard choice for fluorescence
+            overlays.
     """
 
     channel: Channel
     intensities: Float64Array
     opacity: float = 1.0
-    transparent: bool = True
+    zero_transparent: bool = True
+    blend_mode: BlendMode = BlendMode.ADDITIVE
 
     def __post_init__(self) -> None:
         if self.intensities.ndim != 2:
@@ -33,25 +59,43 @@ class Layer:
         if not 0 <= self.opacity <= 1:
             raise ValueError(f"Opacity must be in [0, 1], got {self.opacity}")
 
+        lo, hi = float(self.intensities.min()), float(self.intensities.max())
+        if lo < 0.0 or hi > 1.0:
+            warnings.warn(
+                f"Layer '{self.channel.name}' has intensity values outside [0, 1] "
+                f"(min={lo:.4g}, max={hi:.4g}). Values will be clipped, which "
+                f"may indicate missing normalization.",
+                stacklevel=2,
+            )
+            self.intensities = np.clip(self.intensities, 0.0, 1.0)
+
 
 def overlay_channels(
     background: Float64Array,
     channel_intensities: dict[Channel, Float64Array],
+    *,
     opacity: float = 1.0,
-    transparent: bool = True,
+    zero_transparent: bool = True,
+    blend_mode: BlendMode = BlendMode.ADDITIVE,
 ) -> Float64Array:
     """Create a fluorescence overlay with uniform settings for all channels.
 
+    This is the high-level convenience function.  For per-layer control over
+    opacity, transparency, or blend mode, use :func:`create_overlay` directly.
+
     Args:
         background: 2D grayscale background image with values in [0, 1].
-        channel_intensities: Dict mapping Channel objects to their 2D intensity arrays
-            (values in [0, 1]).
-        opacity: Global opacity multiplier for all channels. Default is 1 (fully opaque).
-        transparent: If True (default), all colormaps fade from transparent to channel color.
-            If False, all colormaps fade from black to channel color.
+        channel_intensities: Dict mapping Channel objects to their 2D intensity
+            arrays (values in [0, 1]).
+        opacity: Global opacity multiplier for all channels. Default is 1.
+        zero_transparent: If True (default), all colormaps fade from transparent
+            to channel color.  If False, colormaps fade from black.
+        blend_mode: Compositing mode for all channels.  Default is
+            ``BlendMode.ADDITIVE``.
 
     Returns:
-        RGB image (HxWx3 array) with all channels alpha-blended onto background.
+        RGB image (HxWx3 float64 array) with all channels composited onto
+        the background.
 
     Example:
         >>> overlay = overlay_channels(
@@ -60,121 +104,115 @@ def overlay_channels(
         ...         DAPI: dapi_intensities,
         ...         FITC: fitc_intensities,
         ...         TRITC: tritc_intensities,
-        ...     }
+        ...     },
         ... )
     """
     layers = [
-        Layer(channel, intensities, opacity, transparent)
+        Layer(channel, intensities, opacity, zero_transparent, blend_mode)
         for channel, intensities in channel_intensities.items()
     ]
-    return create_sequential_overlay(background, layers)
+    return create_overlay(background, layers)
 
 
-def create_sequential_overlay(
+def create_overlay(
     background: Float64Array,
     layers: list[Layer],
 ) -> Float64Array:
-    """Create an overlay by sequentially blending layers onto a background.
+    """Create an overlay by compositing layers onto a background.
 
     Args:
         background: 2D grayscale background image with values in [0, 1].
-        layers: List of Layer objects to overlay in sequence.
+        layers: List of Layer objects to composite.
 
     Returns:
-        RGB image (HxWx3 array) with all layers alpha-blended onto background.
+        RGB image (HxWx3 float64 array) with all layers composited onto
+        the background.
 
     Raises:
-        ValueError: If background is not a 2D array.
+        ValueError: If the background is not 2D, or if any layer's spatial
+            dimensions do not match the background.
 
     Example:
-        >>> overlay = create_sequential_overlay(
+        >>> overlay = create_overlay(
         ...     background=brightfield,
         ...     layers=[
         ...         Layer(DAPI, dapi_intensities),
         ...         Layer(FITC, fitc_intensities, opacity=0.8),
-        ...         Layer(TRITC, tritc_intensities, transparent=False),
-        ...     ]
+        ...         Layer(TRITC, tritc_intensities, blend_mode=BlendMode.ALPHA),
+        ...     ],
         ... )
     """
     if background.ndim != 2:
         raise ValueError(f"Expected 2D background array, got shape {background.shape}")
 
-    result = gray2rgb(background)
+    canvas = _gray_to_rgb(background)
 
     for layer in layers:
-        colormap = _make_colormap(layer.channel.color, layer.channel.name, layer.transparent)
-        foreground_rgba = colorize(layer.intensities, colormap)
-        foreground_rgb = foreground_rgba[..., :3]
-        alpha = layer.opacity * foreground_rgba[..., 3:4]
-        result = alpha_blend(result, foreground_rgb, alpha)
+        if layer.intensities.shape != background.shape:
+            raise ValueError(
+                f"Layer '{layer.channel.name}' has shape "
+                f"{layer.intensities.shape}, but background has shape "
+                f"{background.shape}."
+            )
+        cmap = _build_colormap(layer.channel.color, layer.zero_transparent)
+        rgba = cmap(layer.intensities)
+        rgb = rgba[..., :3]
+        alpha = layer.opacity * rgba[..., 3:4]
+        canvas = _composite(canvas, rgb, alpha, layer.blend_mode)
 
-    return result
+    return canvas
 
 
-def alpha_blend(
+def _composite(
+    background: Float64Array,
+    foreground: Float64Array,
+    alpha: Float64Array,
+    mode: BlendMode,
+) -> Float64Array:
+    """Composite *foreground* onto *background* using the given blend mode."""
+    if mode is BlendMode.ADDITIVE:
+        return _blend_additive(background, foreground, alpha)
+    return _blend_alpha(background, foreground, alpha)
+
+
+def _blend_alpha(
     background: Float64Array,
     foreground: Float64Array,
     alpha: Float64Array,
 ) -> Float64Array:
-    """Alpha-blend foreground onto background.
-
-    Args:
-        background: Background image with values in [0, 1].
-        foreground: Foreground image with values in [0, 1].
-        alpha: Alpha values in [0, 1]. Can be per-pixel (HxWx1) or scalar.
-
-    Returns:
-        Blended image with values clipped to [0, 1].
-    """
-    result = alpha * foreground + (1 - alpha) * background
-    return np.clip(result, 0, 1)
+    """Porter-Duff 'over' compositing."""
+    return np.clip(alpha * foreground + (1 - alpha) * background, 0.0, 1.0)
 
 
-def colorize(
-    intensities: Float64Array,
-    colormap: LinearSegmentedColormap,
+def _blend_additive(
+    background: Float64Array,
+    foreground: Float64Array,
+    alpha: Float64Array,
 ) -> Float64Array:
-    """Apply a colormap to a 2D intensity array.
+    """Additive (screen-like) compositing -- contributions accumulate."""
+    return np.clip(background + alpha * foreground, 0.0, 1.0)
 
-    Args:
-        intensities: 2D array of intensity values in [0, 1].
-        colormap: Matplotlib colormap to apply.
 
-    Returns:
-        RGBA image (HxWx4 array).
+@lru_cache(maxsize=64)
+def _build_colormap(color: str, zero_transparent: bool) -> LinearSegmentedColormap:
+    """Return a two-stop colormap for *color*, with LRU caching.
 
-    Raises:
-        ValueError: If intensities is not a 2D array.
+    When *zero_transparent* is True the zero-point is a fully-transparent
+    neutral gray (0.5, 0.5, 0.5, 0).  The gray anchor was chosen empirically:
+    on typical grayscale brightfield backgrounds it produces smoother blending
+    and avoids the dark halos that a black anchor introduces around low-signal
+    regions.
+
+    When *zero_transparent* is False the zero-point is opaque black (0, 0, 0, 1),
+    giving a classic LUT-style ramp.
     """
-    if intensities.ndim != 2:
-        raise ValueError(
-            f"Expected 2D array, but input has shape {intensities.shape} "
-            f"with {intensities.ndim} dimensions."
-        )
-
-    norm = Normalize(vmin=0, vmax=1)
-    mapper = ScalarMappable(norm=norm, cmap=colormap)
-    return mapper.to_rgba(intensities).astype(np.float64)
+    if zero_transparent:
+        stops = [(0.5, 0.5, 0.5, 0.0), color]
+    else:
+        stops = [(0.0, 0.0, 0.0, 1.0), color]
+    return LinearSegmentedColormap.from_list(f"_chan_{color}", stops)
 
 
-def _make_colormap(color: str, name: str, transparent: bool) -> LinearSegmentedColormap:
-    """Build a colormap for a single channel."""
-    if transparent:
-        return _semitransparent_colormap(color, name)
-    return _opaque_colormap(color, name)
-
-
-def _opaque_colormap(color: str, name: str) -> LinearSegmentedColormap:
-    """Colormap from black to *color*."""
-    return LinearSegmentedColormap.from_list(name, [(0, 0, 0, 1), color])
-
-
-def _semitransparent_colormap(color: str, name: str) -> LinearSegmentedColormap:
-    """Colormap from fully-transparent neutral gray to *color*.
-
-    The zero-point anchors at a neutral gray (0.5, 0.5, 0.5) with full transparency rather
-    than black (0, 0, 0). This was chosen empirically: on typical grayscale brightfield
-    backgrounds, a gray anchor produces smoother blending and avoids the dark halos that a
-    black anchor introduces around low-signal regions.
-    """
-    return LinearSegmentedColormap.from_list(name, [(0.5, 0.5, 0.5, 0), color])
+def _gray_to_rgb(image: Float64Array) -> Float64Array:
+    """Broadcast a single-channel 2D image to (H, W, 3)."""
+    return np.repeat(image[:, :, np.newaxis], 3, axis=2)
