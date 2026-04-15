@@ -283,7 +283,7 @@ class MicroscopyImage:
     def _resolve_channel_name(channel: str | Channel) -> str:
         return channel if isinstance(channel, str) else channel.name
 
-    def get_intensities_from_channel(self, channel: str | Channel) -> UInt16Array:
+    def get_channel_intensities(self, channel: str | Channel) -> UInt16Array:
         """Extract intensity data for a specific channel.
 
         Returns all data for the requested channel, preserving temporal and spatial
@@ -349,5 +349,5 @@ class MicroscopyImage:
             ValueError: If the specified channel is not found in this image or if no
                 image metadata is available.
         """
-        intensities = self.get_intensities_from_channel(channel)
+        intensities = self.get_channel_intensities(channel)
         return pipeline(intensities)
