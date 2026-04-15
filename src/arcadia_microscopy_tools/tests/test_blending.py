@@ -40,7 +40,7 @@ class TestLayer:
         layer = Layer(CHAN_BLUE, ones_layer)
         assert layer.opacity == 1.0
         assert layer.zero_transparent is True
-        assert layer.blend_mode is BlendMode.ADDITIVE
+        assert layer.blend_mode is BlendMode.ALPHA
 
     def test_non_2d_intensities_raises(self):
         with pytest.raises(ValueError, match="Expected 2D"):
@@ -133,12 +133,12 @@ class TestBlendAdditive:
     def test_is_commutative(self, background, ones_layer):
         """Additive blending should not depend on layer order."""
         layers_ab = [
-            Layer(CHAN_BLUE, ones_layer * 0.3),
-            Layer(CHAN_GREEN, ones_layer * 0.5),
+            Layer(CHAN_BLUE, ones_layer * 0.3, blend_mode=BlendMode.ADDITIVE),
+            Layer(CHAN_GREEN, ones_layer * 0.5, blend_mode=BlendMode.ADDITIVE),
         ]
         layers_ba = [
-            Layer(CHAN_GREEN, ones_layer * 0.5),
-            Layer(CHAN_BLUE, ones_layer * 0.3),
+            Layer(CHAN_GREEN, ones_layer * 0.5, blend_mode=BlendMode.ADDITIVE),
+            Layer(CHAN_BLUE, ones_layer * 0.3, blend_mode=BlendMode.ADDITIVE),
         ]
         result_ab = create_overlay(background, layers_ab)
         result_ba = create_overlay(background, layers_ba)
@@ -291,7 +291,7 @@ class TestOverlayChannels:
         )
         assert result.shape == (4, 4, 3)
 
-    def test_additive_is_default(self, background, ones_layer):
+    def test_alpha_is_default(self, background, ones_layer):
         result = overlay_channels(
             background,
             {CHAN_BLUE: ones_layer},

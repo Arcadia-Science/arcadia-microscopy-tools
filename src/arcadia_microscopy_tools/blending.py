@@ -43,15 +43,14 @@ class Layer:
             transparency is applied; useful when there is no meaningful
             background to show through).
         blend_mode: How this layer is composited onto the canvas.
-            Default is ``ADDITIVE`` -- the standard choice for fluorescence
-            overlays.
+            Default is ``ALPHA``.
     """
 
     channel: Channel
     intensities: Float64Array
     opacity: float = 1.0
     zero_transparent: bool = True
-    blend_mode: BlendMode = BlendMode.ADDITIVE
+    blend_mode: BlendMode = BlendMode.ALPHA
 
     def __post_init__(self) -> None:
         if self.intensities.ndim != 2:
@@ -76,7 +75,7 @@ def overlay_channels(
     *,
     opacity: float = 1.0,
     zero_transparent: bool = True,
-    blend_mode: BlendMode = BlendMode.ADDITIVE,
+    blend_mode: BlendMode = BlendMode.ALPHA,
 ) -> Float64Array:
     """Create a fluorescence overlay with uniform settings for all channels.
 
@@ -91,7 +90,7 @@ def overlay_channels(
         zero_transparent: If True (default), all colormaps fade from transparent
             to channel color.  If False, colormaps fade from black.
         blend_mode: Compositing mode for all channels.  Default is
-            ``BlendMode.ADDITIVE``.
+            ``BlendMode.ALPHA``.
 
     Returns:
         RGB image (HxWx3 float64 array) with all channels composited onto
