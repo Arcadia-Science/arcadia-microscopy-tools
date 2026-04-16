@@ -49,26 +49,6 @@ def list_image_names(lif_path: Path) -> list[str]:
         return [image.name for image in f.images]
 
 
-def create_instrument_metadata_from_lif(
-    lif_path: Path,
-    image_name: str,
-    channels: list[Channel] | None = None,
-) -> InstrumentMetadata:
-    """Create InstrumentMetadata from a Leica LIF file.
-
-    Args:
-        lif_path: Path to the Leica LIF file.
-        image_name: Name of the specific image within the LIF file to extract.
-        channels: Optional list of Channel objects to override automatic channel detection.
-            If not provided, channels are inferred from the LIF file metadata.
-
-    Returns:
-        InstrumentMetadata with sizes and channel metadata for all channels.
-    """
-    parser = _LeicaMetadataParser(lif_path, image_name, channels)
-    return parser.parse()
-
-
 def load_lif_image(
     lif_path: Path,
     image_name: str,

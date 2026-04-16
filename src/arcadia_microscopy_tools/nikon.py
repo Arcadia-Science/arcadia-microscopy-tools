@@ -20,24 +20,6 @@ from .microscopy import InstrumentMetadata
 from .typing import Float64Array, UInt16Array
 
 
-def create_instrument_metadata_from_nd2(
-    nd2_path: Path,
-    channels: list[Channel] | None = None,
-) -> InstrumentMetadata:
-    """Create InstrumentMetadata from a Nikon ND2 file.
-
-    Args:
-        nd2_path: Path to the Nikon ND2 file.
-        channels: Optional list of Channel objects to override automatic channel detection.
-            If not provided, channels are inferred from the ND2 file's optical configuration.
-
-    Returns:
-        InstrumentMetadata with sizes and channel metadata for all channels.
-    """
-    parser = _NikonMetadataParser(nd2_path, channels)
-    return parser.parse()
-
-
 def load_nd2(
     nd2_path: Path,
     channels: list[Channel] | None = None,
