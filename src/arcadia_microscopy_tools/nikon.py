@@ -281,7 +281,7 @@ class _NikonMetadataParser:
         if "Z-Series" not in events_dataframe.columns:
             raise ValueError("Missing 'Z-Series' column in events metadata")
 
-        z_values_um = events_dataframe[dynamic_z_column].to_numpy(dtype=float)
+        z_values_um = events_dataframe[dynamic_z_column].to_numpy(dtype=float, copy=True)
         z_center_index = events_dataframe["Z-Series"].abs().idxmin()
         z_center = events_dataframe.loc[z_center_index, dynamic_z_column]
         z_values_um -= z_center
