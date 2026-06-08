@@ -24,4 +24,6 @@ jobs:
       - name: Build
         run: uv build
       - name: Publish
-        run: uv publish
+        # --check-url lets re-runs (e.g. after a squash-merge retag) skip files
+        # that are already on PyPI instead of failing with "File already exists".
+        run: uv publish --check-url https://pypi.org/simple/arcadia-microscopy-tools/
