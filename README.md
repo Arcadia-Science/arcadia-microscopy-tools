@@ -83,7 +83,7 @@ Extract intensity data for specific channels:
 from arcadia_microscopy_tools.channels import DAPI
 
 # Get intensity data for a specific channel
-dapi_intensities = image.get_intensities_from_channel(DAPI)
+dapi_intensities = image.get_channel_intensities(DAPI)
 
 # The returned array preserves temporal/spatial dimensions
 dapi_intensities.shape  # (256, 256)

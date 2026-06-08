@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-08
+
+### Changed (breaking)
+- `MicroscopyImage.get_intensities_from_channel()` renamed to `get_channel_intensities()`
+- `Channel.color` is now a hex string (e.g. `"#0033FF"`) instead of an `arcadia_pycolor.HexCode`
+- `Channel` no longer maintains a class-level registry; predefined channels are now exposed via the module-level `CHANNELS` dict in `channels.py`
+- `Channel.from_emission_wavelength()` and `Channel.from_excitation_wavelength()` replaced by a single `Channel.from_wavelength(wavelength_nm, *, name=None, is_excitation=True)`
+- `Channel.from_optical_config_name()` and `Channel.wavelength_to_color()` removed; use the module-level `wavelength_to_hex()` helper (optical-config resolution is now internal to `nikon.py`)
+- `blending.create_sequential_overlay()` renamed to `create_overlay()`
+- `Layer.transparent` renamed to `zero_transparent`; `overlay_channels()` arguments after `channel_intensities` are now keyword-only
+- The `transparent=True` colormap now anchors its zero-point at transparent gray `(0.5, 0.5, 0.5, 0)` instead of transparent white, producing smoother blending and avoiding dark halos on grayscale backgrounds (changes the visual output of existing overlays)
+- `PipelineParallelized` removed; parallelization is now built into `Pipeline` via the `parallel` and `max_workers` arguments
+- `Pipeline.preserve_dtype` default changed from `True` to `False`
+- `InstrumentMetadata.from_nd2_path()` and `InstrumentMetadata.from_lif_path()` removed; loading is handled by `MicroscopyImage.from_nd2_path()` / `from_lif_path()`, backed by the new `load_nd2()` / `load_lif_image()` loaders
+- `utils.parallelized()` decorator removed
+
+### Added
+- `BlendMode` enum (`ALPHA`, `ADDITIVE`) and per-layer `blend_mode` control on `Layer` and `overlay_channels()`; `BlendMode`, `Layer`, and `create_overlay` are now exported from the package root
+- Typed warning classes `MetadataWarning` and `SegmentationWarning` (in `exceptions.py`), now exported from the package root and used in place of bare `UserWarning`/`logger.error` for metadata and segmentation fallbacks
+- `Layer` and `overlay_channels()`/`create_overlay()` validate input shapes and warn when intensity/background values fall outside `[0, 1]`
+- `wavelength_to_hex()` helper in `channels.py`
+- `Float32Array` type alias (and `float32` is now an accepted `ScalarArray` member)
+
+### Changed
+- `load_nd2()` / `load_lif_image()` read intensities and metadata in a single file-open pass, eliminating redundant file I/O on load
+- `matplotlib` added as an explicit dependency
+
+### Fixed
+- Fixed a read-only array error when extracting z-coordinates from Nikon ND2 metadata
+- Corrected the `_parse_exposure_time` docstring (values are converted to seconds, not milliseconds)
+- `ImageOperation` instances are now immutable (assignment/deletion raises `AttributeError`) and hashable
+
 ## [0.3.2] - 2026-03-23
 
 ### Added
