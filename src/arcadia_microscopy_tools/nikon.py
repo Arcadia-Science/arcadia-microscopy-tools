@@ -7,7 +7,7 @@ import nd2
 import pandas as pd
 from nd2.structures import TextInfo
 
-from .channels import Channel
+from .channels import BRIGHTFIELD, CHANNELS, FITC, Channel
 from .metadata_structures import (
     AcquisitionSettings,
     ChannelMetadata,
@@ -17,14 +17,14 @@ from .metadata_structures import (
     NominalDimensions,
 )
 from .microscopy import InstrumentMetadata
-from .typing import Float64Array
+from .typing import Float64Array, UInt16Array
 
 
-def create_instrument_metadata_from_nd2(
+def load_nd2(
     nd2_path: Path,
     channels: list[Channel] | None = None,
-) -> InstrumentMetadata:
-    """Create InstrumentMetadata from a Nikon ND2 file.
+) -> tuple[UInt16Array, InstrumentMetadata]:
+    """Load intensity data and metadata from a Nikon ND2 file in a single pass.
 
     Args:
         nd2_path: Path to the Nikon ND2 file.
@@ -32,10 +32,46 @@ def create_instrument_metadata_from_nd2(
             If not provided, channels are inferred from the ND2 file's optical configuration.
 
     Returns:
-        InstrumentMetadata with sizes and channel metadata for all channels.
+        Tuple of (intensities, instrument_metadata).
     """
     parser = _NikonMetadataParser(nd2_path, channels)
-    return parser.parse()
+    with nd2.ND2File(nd2_path) as nd2f:
+        intensities = nd2f.asarray()
+        instrument_metadata = parser.parse(nd2f)
+    return intensities, instrument_metadata
+
+
+_OPTICAL_CONFIG_ALIASES: dict[str, Channel] = {
+    "MONO": BRIGHTFIELD,
+    "GFP": FITC,
+}
+
+
+def _resolve_optical_config(optical_config: str) -> Channel:
+    """Resolve a Nikon optical configuration name to a Channel.
+
+    Matching order:
+        1. Exact match against known channel names (case-insensitive).
+        2. Nikon-specific aliases (e.g. "Mono" → BRIGHTFIELD, "GFP" → FITC).
+        3. Longest substring match against known channel names.
+
+    Raises:
+        ValueError: If no match is found.
+    """
+    key = optical_config.upper()
+
+    if key in CHANNELS:
+        return CHANNELS[key]
+
+    for alias, channel in _OPTICAL_CONFIG_ALIASES.items():
+        if alias in key:
+            return channel
+
+    matches = [name for name in CHANNELS if name in key]
+    if matches:
+        return CHANNELS[max(matches, key=len)]
+
+    raise ValueError(f"'{optical_config}' is not a recognized optical configuration.")
 
 
 class _NikonMetadataParser:
@@ -46,17 +82,28 @@ class _NikonMetadataParser:
         self.channels = channels
         self._nd2f: nd2.ND2File
 
-    def parse(self) -> InstrumentMetadata:
-        """Parse the ND2 file and extract all metadata."""
-        with nd2.ND2File(self.nd2_path) as self._nd2f:
-            self.sizes = dict(self._nd2f.sizes)
-            self.text_info = TextInfo(self._nd2f.text_info)
-            self.events = self._nd2f.events()
-            self.dimensions = self._get_dimension_flags()
-            self.timestamp = self._parse_timestamp()
+    def parse(self, nd2f: nd2.ND2File | None = None) -> InstrumentMetadata:
+        """Parse the ND2 file and extract all metadata.
 
-            channel_metadata_list = self._parse_all_channels()
+        Args:
+            nd2f: Optional already-opened ND2File handle. If not provided, the file
+                is opened from self.nd2_path.
+        """
+        if nd2f is not None:
+            return self._extract_metadata(nd2f)
+        with nd2.ND2File(self.nd2_path) as opened:
+            return self._extract_metadata(opened)
 
+    def _extract_metadata(self, nd2f: nd2.ND2File) -> InstrumentMetadata:
+        """Extract all metadata from an open ND2 file handle."""
+        self._nd2f = nd2f
+        self.sizes = dict(self._nd2f.sizes)
+        self.text_info = TextInfo(self._nd2f.text_info)
+        self.events = self._nd2f.events()
+        self.dimensions = self._get_dimension_flags()
+        self.timestamp = self._parse_timestamp()
+
+        channel_metadata_list = self._parse_all_channels()
         return InstrumentMetadata(self.sizes, channel_metadata_list)
 
     def _parse_all_channels(self) -> list[ChannelMetadata]:
@@ -88,7 +135,7 @@ class _NikonMetadataParser:
         nd2_channel = self._get_nd2_channel_metadata(channel_index)
 
         if channel is None:
-            channel = Channel.from_optical_config_name(nd2_channel.channel.name)
+            channel = _resolve_optical_config(nd2_channel.channel.name)
 
         resolution = self._parse_nominal_dimensions(nd2_channel)
         measured = self._parse_measured_dimensions()
@@ -234,7 +281,7 @@ class _NikonMetadataParser:
         if "Z-Series" not in events_dataframe.columns:
             raise ValueError("Missing 'Z-Series' column in events metadata")
 
-        z_values_um = events_dataframe[dynamic_z_column].to_numpy(dtype=float)
+        z_values_um = events_dataframe[dynamic_z_column].to_numpy(dtype=float, copy=True)
         z_center_index = events_dataframe["Z-Series"].abs().idxmin()
         z_center = events_dataframe.loc[z_center_index, dynamic_z_column]
         z_values_um -= z_center
@@ -336,7 +383,7 @@ class _NikonMetadataParser:
         return None
 
     def _parse_exposure_time(self, sample_text: str) -> float | None:
-        """Parse exposure time from sample text, converting to milliseconds."""
+        """Parse exposure time from sample text, converting to seconds."""
         pattern = r"Exposure: (\d+(?:\.\d+)?) (\w+)"
         for line in sample_text.splitlines():
             if "Exposure" in line:

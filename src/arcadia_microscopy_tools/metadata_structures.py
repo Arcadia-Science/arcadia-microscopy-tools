@@ -2,17 +2,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Flag, auto
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .channels import Channel
 from .typing import Float64Array
 
 if TYPE_CHECKING:
     from dataclasses import Field
-    from typing import Any
 
 
-def dimension_field(dimension: DimensionFlags, default=None):
+def dimension_field(dimension: DimensionFlags, default: Any = None) -> Any:
     """Create a field that's required for a specific dimension."""
     return field(default=default, metadata={"requires_dimension": dimension})
 
@@ -136,7 +135,7 @@ class ChannelMetadata:
     acquisition: AcquisitionSettings
     optics: MicroscopeConfig
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate all sub-components against dimension flags."""
         self.resolution.validate(self.dimensions)
         self.measured.validate(self.dimensions)

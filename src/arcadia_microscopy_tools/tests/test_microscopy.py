@@ -2,13 +2,13 @@ from typing import Any
 
 import numpy as np
 
-from arcadia_microscopy_tools import Channel, MicroscopyImage
-from arcadia_microscopy_tools.channels import FITC
+from arcadia_microscopy_tools import MicroscopyImage
+from arcadia_microscopy_tools.channels import CHANNELS, FITC
 
 
 def assert_metadata_equal(image: MicroscopyImage, expected_image_metadata: dict[str, Any]):
     for channel_str, known_channel_metadata in expected_image_metadata.items():
-        channel = Channel.registry[channel_str]
+        channel = CHANNELS[channel_str]
         channel_index = image.channels.index(channel)
         channel_metadata = image.metadata.instrument.channel_metadata_list[channel_index]  # type: ignore
 

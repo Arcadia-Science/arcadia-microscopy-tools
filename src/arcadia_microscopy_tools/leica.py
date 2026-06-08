@@ -11,6 +11,7 @@ import numpy as np
 from pydantic import BaseModel, computed_field
 
 from .channels import BRIGHTFIELD, E_CARS, E_SHG, F_CARS, F_SHG, SRS, Channel
+from .exceptions import MetadataWarning
 from .metadata_structures import (
     AcquisitionSettings,
     ChannelMetadata,
@@ -20,7 +21,7 @@ from .metadata_structures import (
     NominalDimensions,
 )
 from .microscopy import InstrumentMetadata
-from .typing import Float64Array
+from .typing import Float64Array, UInt16Array
 
 _SI_UNITS: dict[str, float] = {
     "m": 1,
@@ -48,12 +49,12 @@ def list_image_names(lif_path: Path) -> list[str]:
         return [image.name for image in f.images]
 
 
-def create_instrument_metadata_from_lif(
+def load_lif_image(
     lif_path: Path,
     image_name: str,
     channels: list[Channel] | None = None,
-) -> InstrumentMetadata:
-    """Create InstrumentMetadata from a Leica LIF file.
+) -> tuple[UInt16Array, InstrumentMetadata]:
+    """Load intensity data and metadata from a Leica LIF file in a single pass.
 
     Args:
         lif_path: Path to the Leica LIF file.
@@ -62,10 +63,21 @@ def create_instrument_metadata_from_lif(
             If not provided, channels are inferred from the LIF file metadata.
 
     Returns:
-        InstrumentMetadata with sizes and channel metadata for all channels.
+        Tuple of (intensities, instrument_metadata).
+
+    Raises:
+        ValueError: If the specified image is not found in the LIF file.
     """
     parser = _LeicaMetadataParser(lif_path, image_name, channels)
-    return parser.parse()
+    with liffile.LifFile(lif_path) as lif:
+        available_names = [img.name for img in lif.images]
+        if image_name not in available_names:
+            raise ValueError(
+                f"Image {image_name} not found in {lif_path}. Available images: {available_names}"
+            )
+        intensities = lif.images[image_name].asarray()
+        instrument_metadata = parser.parse(lif)
+    return intensities, instrument_metadata
 
 
 def calculate_raman_shift(
@@ -342,37 +354,42 @@ class _LeicaMetadataParser:
         self.image_description: _ImageDescription
         self.laser_system_state: _LaserSystemState
 
-    def parse(self) -> InstrumentMetadata:
-        """Parse the LIF file and extract all metadata for the specified image."""
-        with liffile.LifFile(self.lif_path) as self._lif:
-            self.image = self._lif.images[self.image_name]
+    def parse(self, lif: liffile.LifFile | None = None) -> InstrumentMetadata:
+        """Parse the LIF file and extract all metadata for the specified image.
 
-            # Validate critical metadata exists
-            if not hasattr(self.image, "attrs"):
-                raise ValueError(
-                    f"Missing attrs metadata for image '{self.image_name}' in {self.lif_path}"
-                )
+        Args:
+            lif: Optional already-opened LifFile handle. If not provided, the file
+                is opened from self.lif_path.
+        """
+        if lif is not None:
+            return self._extract_metadata(lif)
+        with liffile.LifFile(self.lif_path) as opened:
+            return self._extract_metadata(opened)
 
-            self.sizes = self.image.sizes
-            self.dimensions = self.get_dimension_flags()
-            self.timestamp = self.parse_timestamp()
+    def _extract_metadata(self, lif: liffile.LifFile) -> InstrumentMetadata:
+        """Extract all metadata from an open LIF file handle."""
+        self._lif = lif
+        self.image = self._lif.images[self.image_name]
 
-            # Parse image description
-            self.image_description = self.parse_image_description()
-
-            # Parse laser system state
-            self.laser_system_state = self.parse_laser_array_data()
-
-            # Parse image-level metadata once, shared across all channels
-            resolution = self.parse_nominal_dimensions()
-            measured = self.parse_measured_dimensions()
-            acquisition = self.parse_acquisition_settings()
-            optics = self.parse_microscope_settings()
-
-            channel_metadata_list = self.parse_all_channels(
-                resolution, measured, acquisition, optics
+        if not hasattr(self.image, "attrs"):
+            raise ValueError(
+                f"Missing attrs metadata for image '{self.image_name}' in {self.lif_path}"
             )
-            return InstrumentMetadata(self.sizes, channel_metadata_list)
+
+        self.sizes = self.image.sizes
+        self.dimensions = self.get_dimension_flags()
+        self.timestamp = self.parse_timestamp()
+
+        self.image_description = self.parse_image_description()
+        self.laser_system_state = self.parse_laser_array_data()
+
+        resolution = self.parse_nominal_dimensions()
+        measured = self.parse_measured_dimensions()
+        acquisition = self.parse_acquisition_settings()
+        optics = self.parse_microscope_settings()
+
+        channel_metadata_list = self.parse_all_channels(resolution, measured, acquisition, optics)
+        return InstrumentMetadata(self.sizes, channel_metadata_list)
 
     def parse_image_description(self) -> _ImageDescription:
         """Parse the ImageDescription XML element into structured data.
@@ -502,16 +519,18 @@ class _LeicaMetadataParser:
         # Can reasonably infer channel only in the case where either the UV or WLL laser is ON
         excitation_wavelength_nm = self.extract_wavelength_value(laser_state.WavelengthDouble)
         try:
-            return Channel.from_excitation_wavelength(
+            return Channel.from_wavelength(
                 excitation_wavelength_nm, name=laser_state.LightSourceType.name
             )
         except ValueError:
             warnings.warn(
                 f"Parsed excitation wavelength {excitation_wavelength_nm} nm outside accepted "
                 "range for Channel inference. Pass a Channel instance to prevent this warning.",
+                MetadataWarning,
                 stacklevel=2,
             )
-            return Channel(name=laser_state.LightSourceType.name)
+            # NIR lasers are typically in the 700-1400nm range, assign a dark red color
+            return Channel(name=laser_state.LightSourceType.name, color="#8B0000")
 
     def infer_channel_from_detector(
         self,
@@ -556,7 +575,7 @@ class _LeicaMetadataParser:
             (detector_name, beam_route)
         ) or self._CHANNEL_AMBIGUITY_WARNINGS.get((detector_name, None))
         if warning_msg:
-            warnings.warn(warning_msg, stacklevel=2)
+            warnings.warn(warning_msg, MetadataWarning, stacklevel=2)
 
         # For SRS, (E/F)CARS, and (E/F)SHG calculate wavelengths from CRS laser
         if channel in self._CRS_LASER_MODALITIES:
@@ -619,13 +638,14 @@ class _LeicaMetadataParser:
         except IndexError:
             warnings.warn(
                 f"Could not parse timestamp for image '{self.image_name}' in {self.lif_path}. "
-                "Let's pretend it happened during the moon landing. Image could be corrupted.",
+                "Defaulting to a placeholder timestamp. Image metadata may be corrupted.",
+                MetadataWarning,
                 stacklevel=2,
             )
             return datetime(1969, 7, 20, 20, 17)
 
     @property
-    def confocal_settings(self) -> dict:
+    def confocal_settings(self) -> dict[str, Any]:
         """Get ATLConfocalSettingDefinition from hardware settings."""
         return self.image.attrs.get("HardwareSetting", {}).get("ATLConfocalSettingDefinition", {})
 
@@ -652,6 +672,7 @@ class _LeicaMetadataParser:
             warnings.warn(
                 f"X ({x_step_um:.4f} µm) and Y ({y_step_um:.4f} µm) pixel steps differ by more "
                 "than 1%; using average for xy_step_um.",
+                MetadataWarning,
                 stacklevel=2,
             )
         xy_step_um = (x_step_um + y_step_um) / 2

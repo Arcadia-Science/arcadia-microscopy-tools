@@ -5,13 +5,12 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any
 
-import liffile
-import nd2
 from numpy import uint16
 
 from .channels import Channel
+from .exceptions import MetadataWarning
 from .metadata_structures import ChannelMetadata, DimensionFlags
-from .pipeline import Pipeline, PipelineParallelized
+from .pipeline import Pipeline
 from .typing import ScalarArray, UInt16Array
 
 
@@ -51,14 +50,12 @@ class InstrumentMetadata:
     def channel_axis(self) -> int | None:
         """Get the axis index for the channel dimension, or None if single channel."""
         if "C" in self.sizes:
-            return next((i for i, k in enumerate(self.sizes.keys()) if k == "C"), None)
+            return list(self.sizes.keys()).index("C")
+        return None
 
     @cached_property
     def dimensions(self) -> DimensionFlags:
         """Derive dimension flags by combining from all channels."""
-        if not self.channel_metadata_list:
-            return DimensionFlags(0)
-
         _dimensions = DimensionFlags(0)
         for channel_metadata in self.channel_metadata_list:
             _dimensions |= channel_metadata.dimensions
@@ -68,48 +65,6 @@ class InstrumentMetadata:
             _dimensions |= DimensionFlags.MULTICHANNEL
 
         return _dimensions
-
-    @classmethod
-    def from_nd2_path(
-        cls,
-        nd2_path: Path,
-        channels: list[Channel] | None = None,
-    ) -> InstrumentMetadata:
-        """Create InstrumentMetadata from a Nikon ND2 file.
-
-        Args:
-            nd2_path: Path to the Nikon ND2 file.
-            channels: Optional list of Channel objects to override automatic channel detection.
-                If not provided, channels are inferred from the ND2 file's optical configuration.
-
-        Returns:
-            InstrumentMetadata with sizes and channel metadata for all channels.
-        """
-        from .nikon import create_instrument_metadata_from_nd2
-
-        return create_instrument_metadata_from_nd2(nd2_path, channels)
-
-    @classmethod
-    def from_lif_path(
-        cls,
-        lif_path: Path,
-        image_name: str,
-        channels: list[Channel] | None = None,
-    ) -> InstrumentMetadata:
-        """Create InstrumentMetadata from a Leica LIF file.
-
-        Args:
-            lif_path: Path to the Leica LIF file.
-            image_name: Name of the specific image within the LIF file to extract.
-            channels: Optional list of Channel objects to override automatic channel detection.
-                If not provided, channels are inferred from the LIF file metadata.
-
-        Returns:
-            InstrumentMetadata with sizes and channel metadata for all channels.
-        """
-        from .leica import create_instrument_metadata_from_lif
-
-        return create_instrument_metadata_from_lif(lif_path, image_name, channels)
 
 
 @dataclass
@@ -125,6 +80,12 @@ class Metadata:
 
     instrument: InstrumentMetadata
     sample: dict[str, Any] | None = None
+
+    def __repr__(self) -> str:
+        """Return a concise string representation of the metadata."""
+        channels = [cm.channel.name for cm in self.instrument.channel_metadata_list]
+        sample_str = f", sample={self.sample}" if self.sample else ""
+        return f"<Metadata sizes={self.instrument.sizes}, channels={channels}{sample_str}>"
 
 
 @dataclass
@@ -165,7 +126,7 @@ class MicroscopyImage:
             warnings.warn(
                 f"Expected uint16 intensities, got {self.intensities.dtype}. "
                 f"Some operations may behave unexpectedly.",
-                UserWarning,
+                MetadataWarning,
                 stacklevel=2,
             )
 
@@ -173,27 +134,22 @@ class MicroscopyImage:
         """Return a concise string representation of the microscopy image."""
         dtype_str = f"dtype={self.intensities.dtype}"
 
-        # Show first few and last few intensity values
-        flat = self.intensities.flatten()
-        if len(flat) <= 10:
-            intensity_str = f"intensities={list(flat)}"
+        total = self.intensities.size
+        if total <= 10:
+            intensity_str = f"intensities={list(self.intensities.flat)}"
         else:
-            first_vals = flat[:3].tolist()
-            last_vals = flat[-3:].tolist()
+            first_vals = self.intensities.flat[:3].tolist()
+            last_vals = self.intensities.flat[-3:].tolist()
             intensity_str = (
                 f"intensities=[{', '.join(map(str, first_vals))}, ..., "
                 f"{', '.join(map(str, last_vals))}]"
             )
 
-        # Add dimension/channel info if available
-        try:
-            sizes_str = f"sizes={self.sizes}"
-            channels_str = f"channels={[channel.name for channel in self.channels]}"
-            info = f"{sizes_str}, {channels_str}, {intensity_str}, {dtype_str}"
-        except ValueError:
-            info = f"{intensity_str}, {dtype_str}"
+        sizes_str = f"sizes={self.sizes}"
+        channels_str = f"channels={[channel.name for channel in self.channels]}"
+        info = f"{sizes_str}, {channels_str}, {intensity_str}, {dtype_str}"
 
-        return f"MicroscopyImage({info})"
+        return f"<MicroscopyImage {info}>"
 
     @classmethod
     def from_nd2_path(
@@ -213,8 +169,9 @@ class MicroscopyImage:
         Returns:
             MicroscopyImage: A new microscopy image with intensity data and metadata.
         """
-        intensities = nd2.imread(nd2_path)
-        instrument_metadata = InstrumentMetadata.from_nd2_path(nd2_path, channels)
+        from .nikon import load_nd2
+
+        intensities, instrument_metadata = load_nd2(nd2_path, channels)
         metadata = Metadata(instrument_metadata, sample_metadata)
         return cls(intensities, metadata)
 
@@ -238,18 +195,9 @@ class MicroscopyImage:
         Returns:
             MicroscopyImage: A new microscopy image with intensity data and metadata.
         """
-        with liffile.LifFile(lif_path) as lif:
-            for image in lif.images:
-                if image.name == image_name:
-                    intensities = image.asarray()
-                    break
-            else:
-                raise ValueError(
-                    f"Image {image_name} not found in {lif_path}. Available images: "
-                    f"{[image.name for image in lif.images]}"
-                )
+        from .leica import load_lif_image
 
-        instrument_metadata = InstrumentMetadata.from_lif_path(lif_path, image_name, channels)
+        intensities, instrument_metadata = load_lif_image(lif_path, image_name, channels)
         metadata = Metadata(instrument_metadata, sample_metadata)
         return cls(intensities, metadata)
 
@@ -290,7 +238,7 @@ class MicroscopyImage:
     def _resolve_channel_name(channel: str | Channel) -> str:
         return channel if isinstance(channel, str) else channel.name
 
-    def get_intensities_from_channel(self, channel: str | Channel) -> UInt16Array:
+    def get_channel_intensities(self, channel: str | Channel) -> UInt16Array:
         """Extract intensity data for a specific channel.
 
         Returns all data for the requested channel, preserving temporal and spatial
@@ -335,7 +283,7 @@ class MicroscopyImage:
 
     def apply_pipeline(
         self,
-        pipeline: Pipeline | PipelineParallelized,
+        pipeline: Pipeline,
         channel: str | Channel,
     ) -> ScalarArray:
         """Apply a processing pipeline to intensity data from a specific channel.
@@ -344,8 +292,7 @@ class MicroscopyImage:
         through the provided pipeline. Supports both standard and parallelized pipelines.
 
         Args:
-            pipeline: The processing pipeline to apply. Can be either a Pipeline or
-                PipelineParallelized instance containing the sequence of transformations.
+            pipeline: The processing pipeline to apply.
             channel: The channel whose intensity data should be processed,
                 as a Channel object or a channel name string.
 
@@ -357,5 +304,5 @@ class MicroscopyImage:
             ValueError: If the specified channel is not found in this image or if no
                 image metadata is available.
         """
-        intensities = self.get_intensities_from_channel(channel)
+        intensities = self.get_channel_intensities(channel)
         return pipeline(intensities)
