@@ -68,3 +68,6 @@ venv/
 
 # OS
 .DS_Store
+
+# Large/local microscopy test files
+src/arcadia_microscopy_tools/tests/data/local/
