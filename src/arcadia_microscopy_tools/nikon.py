@@ -1,5 +1,6 @@
 from __future__ import annotations
 import re
+import warnings
 from datetime import datetime
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pandas as pd
 from nd2.structures import TextInfo
 
 from .channels import BRIGHTFIELD, CHANNELS, FITC, Channel
+from .exceptions import MetadataWarning
 from .metadata_structures import (
     AcquisitionSettings,
     ChannelMetadata,
@@ -47,16 +49,16 @@ _OPTICAL_CONFIG_ALIASES: dict[str, Channel] = {
 }
 
 
-def _resolve_optical_config(optical_config: str) -> Channel:
-    """Resolve a Nikon optical configuration name to a Channel.
+def _resolve_optical_config(optical_config: str) -> Channel | None:
+    """Resolve a Nikon optical configuration name to a predefined Channel.
 
     Matching order:
         1. Exact match against known channel names (case-insensitive).
         2. Nikon-specific aliases (e.g. "Mono" → BRIGHTFIELD, "GFP" → FITC).
         3. Longest substring match against known channel names.
 
-    Raises:
-        ValueError: If no match is found.
+    Returns:
+        The matching predefined Channel, or None if no match is found.
     """
     key = optical_config.upper()
 
@@ -71,7 +73,12 @@ def _resolve_optical_config(optical_config: str) -> Channel:
     if matches:
         return CHANNELS[max(matches, key=len)]
 
-    raise ValueError(f"'{optical_config}' is not a recognized optical configuration.")
+    return None
+
+
+def _nd2_color_to_hex(color: nd2.structures.Color) -> str:
+    """Convert an ND2 Color (r, g, b ints 0-255) to a hex string."""
+    return f"#{color.r:02X}{color.g:02X}{color.b:02X}"
 
 
 class _NikonMetadataParser:
@@ -136,6 +143,8 @@ class _NikonMetadataParser:
 
         if channel is None:
             channel = _resolve_optical_config(nd2_channel.channel.name)
+            if channel is None:
+                channel = self._build_fallback_channel(nd2_channel.channel)
 
         resolution = self._parse_nominal_dimensions(nd2_channel)
         measured = self._parse_measured_dimensions()
@@ -158,6 +167,32 @@ class _NikonMetadataParser:
         if channels is None:
             raise ValueError("No channel metadata available")
         return channels[channel_index]
+
+    def _build_fallback_channel(self, channel_meta: nd2.structures.ChannelMeta) -> Channel:
+        """Synthesize a Channel from ND2 metadata for an unrecognized optical config.
+
+        Used when an optical configuration name does not match any predefined channel.
+        The channel's color is taken from the ND2 metadata (defaulting to white), and
+        excitation/emission wavelengths are carried over when present.
+        """
+        color = _nd2_color_to_hex(channel_meta.color) if channel_meta.color else "#FFFFFF"
+        excitation_nm = channel_meta.excitationLambdaNm or None
+        emission_nm = channel_meta.emissionLambdaNm or None
+
+        warnings.warn(
+            f"Optical configuration '{channel_meta.name}' did not match a predefined "
+            "channel; synthesizing a channel from ND2 metadata. Pass a Channel instance "
+            "to prevent this warning.",
+            MetadataWarning,
+            stacklevel=2,
+        )
+
+        return Channel(
+            name=channel_meta.name,
+            color=color,
+            excitation_nm=excitation_nm,
+            emission_nm=emission_nm,
+        )
 
     def _get_dimension_flags(self) -> DimensionFlags:
         """Determine dimension flags from ND2 file sizes for a single channel."""
