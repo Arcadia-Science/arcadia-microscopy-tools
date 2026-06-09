@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-06-09
+
+### Changed
+- Unrecognized Nikon ND2 optical configurations no longer raise a `ValueError`; instead a `Channel` is synthesized from the ND2 `ChannelMeta` (color and wavelengths) and a `MetadataWarning` is emitted, consistent with the fallback behavior in `leica.py`
+- Pinned the `modal` (`compute`) extra floor to `>=1.3.0` and redefined the `all` extra as a self-reference to `[compute,segmentation]` so it stays in sync (previously `all` was missing `torch` and `tqdm`)
+
 ## [0.4.0] - 2026-06-08
 
 ### Changed (breaking)
