@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-06-09
+
+### Changed (breaking)
+- `Channel` is now an abstract base class with one concrete subclass per contrast modality (`BrightfieldChannel`, `DICChannel`, `PhaseChannel`, `FluorescenceChannel`, `SRSChannel`, `CARSChannel`, `SHGChannel`). A channel's identity is its optical configuration (modality plus only the facets relevant to it); the flat `Channel(name, color, excitation_nm, emission_nm)` constructor is removed
+- Added `Modality` and `DetectionGeometry` enums. Detection geometry (epi vs forward) is now an identifying facet only of `CARSChannel`/`SHGChannel` (replacing the `E_*`/`F_*`-prefixed names as separate constants' only distinction)
+- Display color is no longer stored on `Channel`. Colors are resolved at visualization time via the new `display.channel_color()` (derived from emission wavelength for spectral channels, fixed neutral colors for label-free modalities); `Layer` gained an optional `color` override
+- Channel names are now non-identifying labels: `SpectralChannel.label` is excluded from equality/hashing, so loader-rebuilt channels compare equal to their presets regardless of label
+- `wavelength_to_hex()` moved from `channels.py` to the new `display.py` module
+- `Channel.from_wavelength()` removed; construct a `FluorescenceChannel` directly
+- Predefined fluorophore presets (`DAPI`, `FITC`, `TRITC`, `CY5`) now derive their display color from emission wavelength rather than a hand-picked hex code
+
+### Added
+- `display.py` module with `wavelength_to_hex()` and `channel_color()`
+- `Modality`, `DetectionGeometry`, the concrete `*Channel` classes, `SpectralChannel`, `channel_color`, and `wavelength_to_hex` are exported from the package root
+
 ## [0.4.1] - 2026-06-09
 
 ### Changed
