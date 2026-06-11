@@ -8,7 +8,7 @@ import nd2
 import pandas as pd
 from nd2.structures import TextInfo
 
-from .channels import BRIGHTFIELD, CHANNELS, FITC, Channel
+from .channels import BRIGHTFIELD, CHANNELS, FITC, Channel, FluorescenceChannel
 from .exceptions import MetadataWarning
 from .metadata_structures import (
     AcquisitionSettings,
@@ -74,11 +74,6 @@ def _resolve_optical_config(optical_config: str) -> Channel | None:
         return CHANNELS[max(matches, key=len)]
 
     return None
-
-
-def _nd2_color_to_hex(color: nd2.structures.Color) -> str:
-    """Convert an ND2 Color (r, g, b ints 0-255) to a hex string."""
-    return f"#{color.r:02X}{color.g:02X}{color.b:02X}"
 
 
 class _NikonMetadataParser:
@@ -172,10 +167,10 @@ class _NikonMetadataParser:
         """Synthesize a Channel from ND2 metadata for an unrecognized optical config.
 
         Used when an optical configuration name does not match any predefined channel.
-        The channel's color is taken from the ND2 metadata (defaulting to white), and
-        excitation/emission wavelengths are carried over when present.
+        The unrecognized config is assumed to be fluorescence; excitation/emission
+        wavelengths are carried over when present and the ND2 config name is kept as
+        the channel label.
         """
-        color = _nd2_color_to_hex(channel_meta.color) if channel_meta.color else "#FFFFFF"
         excitation_nm = channel_meta.excitationLambdaNm or None
         emission_nm = channel_meta.emissionLambdaNm or None
 
@@ -187,11 +182,10 @@ class _NikonMetadataParser:
             stacklevel=2,
         )
 
-        return Channel(
-            name=channel_meta.name,
-            color=color,
+        return FluorescenceChannel(
             excitation_nm=excitation_nm,
             emission_nm=emission_nm,
+            label=channel_meta.name,
         )
 
     def _get_dimension_flags(self) -> DimensionFlags:
