@@ -2,8 +2,8 @@
 
 The public entry point is :func:`parse_nd2`, which reads only the metadata of an
 ND2 file (no pixel data) and returns a fully-populated
-:class:`~nd2_parser.microscopy.InstrumentMetadata` with one
-:class:`~nd2_parser.metadata_structures.ChannelMetadata` per channel.
+:class:`~arcadia_microscopy_tools.microscopy.InstrumentMetadata` with one
+:class:`~arcadia_microscopy_tools.metadata_structures.ChannelMetadata` per channel.
 """
 
 from __future__ import annotations
