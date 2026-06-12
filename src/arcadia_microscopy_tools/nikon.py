@@ -7,6 +7,7 @@ ND2 file (no pixel data) and returns a fully-populated
 """
 
 from __future__ import annotations
+import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,7 @@ from .channels import (
     FluorescenceChannel,
     PhaseChannel,
 )
+from .exceptions import MetadataWarning
 from .metadata_structures import (
     AcquisitionSettings,
     ChannelMetadata,
@@ -104,7 +106,7 @@ def _parse_open(nf: Any) -> InstrumentMetadata:
     z_values = _frame_z_values_um(events, sizes, voxel.z) if flags.is_zstack else None
     t_values = _frame_t_values_ms(events, nf, sizes) if flags.is_timelapse else None
     if flags.is_montage:
-        x_values, y_values = _frame_xy_values_um(events, sizes)
+        x_values, y_values = _frame_xy_values_um(events, nf, sizes)
     else:
         x_values, y_values = None, None
 
@@ -364,13 +366,33 @@ def _frame_t_values_ms(events: list[dict[str, Any]], nf: Any, sizes: dict[str, i
 
 
 def _frame_xy_values_um(
-    events: list[dict[str, Any]], sizes: dict[str, int]
-) -> tuple[np.ndarray | None, np.ndarray | None]:
-    """Measured per-position stage X/Y (absolute um) from events, else ``(None, None)``."""
+    events: list[dict[str, Any]], nf: Any, sizes: dict[str, int]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Measured per-position stage X/Y (absolute um).
+
+    Prefers the recorded ``X Coord``/``Y Coord`` columns in the events table,
+    then the per-frame stage position from frame metadata. If neither is
+    available the positions are unknown: a :class:`MetadataWarning` is issued and
+    NaN-filled arrays are returned so metadata construction can still proceed
+    (``MONTAGE`` requires non-``None`` X/Y values).
+    """
     p_size = sizes.get("P", 1)
     x_values = _axis_values(events, _P_INDEX_COLS, _X_COORD_COLS, p_size)
     y_values = _axis_values(events, _P_INDEX_COLS, _Y_COORD_COLS, p_size)
-    return x_values, y_values
+    if x_values is not None and y_values is not None:
+        return x_values, y_values
+
+    measured = _measured_xy_values_um(nf, sizes)
+    if measured is not None:
+        return measured
+
+    warnings.warn(
+        "Montage stage positions are unavailable from both the events table and "
+        "frame metadata; X/Y coordinate values are unknown and reported as NaN.",
+        MetadataWarning,
+        stacklevel=2,
+    )
+    return np.full(p_size, np.nan), np.full(p_size, np.nan)
 
 
 def _nominal_z_values_um(sizes: dict[str, int], z_step_um: float) -> np.ndarray:
@@ -387,6 +409,26 @@ def _measured_t_values_ms(nf: Any, sizes: dict[str, int]) -> np.ndarray:
         frame_index = _frame_index(sizes, {"T": t})
         values[t] = nf.frame_metadata(frame_index).channels[0].time.relativeTimeMs
     return values - values[0]
+
+
+def _measured_xy_values_um(
+    nf: Any, sizes: dict[str, int]
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Per-position stage X/Y (um) from frame metadata, or ``None`` if unavailable."""
+    p_size = sizes.get("P", 1)
+    x_values = np.empty(p_size, dtype=float)
+    y_values = np.empty(p_size, dtype=float)
+    for p in range(p_size):
+        frame_index = _frame_index(sizes, {"P": p})
+        try:
+            stage = nf.frame_metadata(frame_index).channels[0].position.stagePositionUm
+        except Exception:  # noqa: BLE001 - any failure means "no positions", fall back.
+            return None
+        x_values[p] = stage.x
+        y_values[p] = stage.y
+    if np.isnan(x_values).any() or np.isnan(y_values).any():
+        return None
+    return x_values, y_values
 
 
 def _frame_index(sizes: dict[str, int], coord: dict[str, int]) -> int:
