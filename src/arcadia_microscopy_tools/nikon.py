@@ -1,15 +1,26 @@
+"""Parse Nikon ND2 files into :class:`InstrumentMetadata`.
+
+The public entry point is :func:`parse_nd2`, which reads only the metadata of an
+ND2 file (no pixel data) and returns a fully-populated
+:class:`~nd2_parser.microscopy.InstrumentMetadata` with one
+:class:`~nd2_parser.metadata_structures.ChannelMetadata` per channel.
+"""
+
 from __future__ import annotations
-import re
-import warnings
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import nd2
-import pandas as pd
-from nd2.structures import TextInfo
+import numpy as np
 
-from .channels import BRIGHTFIELD, CHANNELS, FITC, Channel, FluorescenceChannel
-from .exceptions import MetadataWarning
+from .channels import (
+    BrightfieldChannel,
+    Channel,
+    DICChannel,
+    FluorescenceChannel,
+    PhaseChannel,
+)
 from .metadata_structures import (
     AcquisitionSettings,
     ChannelMetadata,
@@ -19,455 +30,480 @@ from .metadata_structures import (
     NominalDimensions,
 )
 from .microscopy import InstrumentMetadata
-from .typing import Float64Array, UInt16Array
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+# Julian Day Number of the Unix epoch (1970-01-01T00:00:00Z).
+_JD_UNIX_EPOCH = 2440587.5
+_MS_PER_DAY = 86_400_000.0
+
+# Dimensions that are *not* iterated frame-by-frame (handled within a frame or
+# as the in-plane image axes).
+_NON_LOOP_DIMS = frozenset({"C", "Y", "X"})
+
+# Label-free modalities, matched against tokens in the channel name. ND2 modality
+# flags are unreliable for these (e.g. a DIC channel is tagged "fluorescence"),
+# so the human-readable channel name is the only dependable signal.
+_LABEL_FREE_TOKENS: tuple[tuple[frozenset[str], type[Channel]], ...] = (
+    (frozenset({"dic"}), DICChannel),
+    (frozenset({"phase", "ph", "phc"}), PhaseChannel),
+    (
+        frozenset({"brightfield", "bright", "bf", "trans", "transmitted", "td", "bria"}),
+        BrightfieldChannel,
+    ),
+)
 
 
-def load_nd2(
-    nd2_path: Path,
-    channels: list[Channel] | None = None,
-) -> tuple[UInt16Array, InstrumentMetadata]:
-    """Load intensity data and metadata from a Nikon ND2 file in a single pass.
+def parse_nd2(path: str | Path) -> InstrumentMetadata:
+    """Parse an ND2 file and return its :class:`InstrumentMetadata`.
 
     Args:
-        nd2_path: Path to the Nikon ND2 file.
-        channels: Optional list of Channel objects to override automatic channel detection.
-            If not provided, channels are inferred from the ND2 file's optical configuration.
+        path: Path to a ``.nd2`` file.
 
     Returns:
-        Tuple of (intensities, instrument_metadata).
+        An :class:`InstrumentMetadata` describing the image dimensions and the
+        per-channel acquisition/optical configuration.
     """
-    parser = _NikonMetadataParser(nd2_path, channels)
-    with nd2.ND2File(nd2_path) as nd2f:
-        intensities = nd2f.asarray()
-        instrument_metadata = parser.parse(nd2f)
-    return intensities, instrument_metadata
+    with nd2.ND2File(str(path)) as nf:
+        return _parse_open(nf)
 
 
-_OPTICAL_CONFIG_ALIASES: dict[str, Channel] = {
-    "MONO": BRIGHTFIELD,
-    "GFP": FITC,
-}
+def load_nd2(path: str | Path) -> tuple[np.ndarray, InstrumentMetadata]:
+    """Load an ND2 file's pixel data and metadata.
 
-
-def _resolve_optical_config(optical_config: str) -> Channel | None:
-    """Resolve a Nikon optical configuration name to a predefined Channel.
-
-    Matching order:
-        1. Exact match against known channel names (case-insensitive).
-        2. Nikon-specific aliases (e.g. "Mono" → BRIGHTFIELD, "GFP" → FITC).
-        3. Longest substring match against known channel names.
+    Args:
+        path: Path to a ``.nd2`` file.
 
     Returns:
-        The matching predefined Channel, or None if no match is found.
+        A ``(intensities, metadata)`` tuple, where ``intensities`` is a NumPy
+        array with axes in :attr:`InstrumentMetadata.sizes` order and ``metadata``
+        is the :class:`InstrumentMetadata` for the file.
     """
-    key = optical_config.upper()
+    with nd2.ND2File(str(path)) as nf:
+        intensities = nf.asarray()
+        metadata = _parse_open(nf)
+    return intensities, metadata
 
-    if key in CHANNELS:
-        return CHANNELS[key]
 
-    for alias, channel in _OPTICAL_CONFIG_ALIASES.items():
-        if alias in key:
-            return channel
+def _parse_open(nf: Any) -> InstrumentMetadata:
+    """Build :class:`InstrumentMetadata` from an already-open :class:`nd2.ND2File`."""
+    sizes = dict(nf.sizes)
+    voxel = nf.voxel_size()
+    channels = nf.metadata.channels or []
+    unstructured = nf.unstructured_metadata()
 
-    matches = [name for name in CHANNELS if name in key]
-    if matches:
-        return CHANNELS[max(matches, key=len)]
+    flags = _dimension_flags(sizes, channels)
+    t_step_ms = _time_step_ms(nf.experiment)
+    sample_settings = _sample_settings(unstructured)
+    events = _events_table(nf)
 
+    # Frame-level coordinate arrays (shared across channels in a frame),
+    # preferring the per-frame "Recorded Data" in events over nominal/looped
+    # values, with graceful fallbacks when events are unavailable.
+    z_values = _frame_z_values_um(events, sizes, voxel.z) if flags.is_zstack else None
+    t_values = _frame_t_values_ms(events, nf, sizes) if flags.is_timelapse else None
+    if flags.is_montage:
+        x_values, y_values = _frame_xy_values_um(events, sizes)
+    else:
+        x_values, y_values = None, None
+
+    first_frame: Any = nf.frame_metadata(0)
+
+    channel_metadata_list = [
+        _build_channel_metadata(
+            index=index,
+            channel_meta=channel_meta,
+            frame_channel=first_frame.channels[index],
+            plane_settings=sample_settings.get(str(index), {}),
+            sizes=sizes,
+            voxel=voxel,
+            flags=flags,
+            t_step_ms=t_step_ms,
+            z_values=z_values,
+            t_values=t_values,
+            x_values=x_values,
+            y_values=y_values,
+        )
+        for index, channel_meta in enumerate(channels)
+    ]
+
+    return InstrumentMetadata(sizes=sizes, channel_metadata_list=channel_metadata_list)
+
+
+def _build_channel_metadata(
+    *,
+    index: int,
+    channel_meta: Any,
+    frame_channel: Any,
+    plane_settings: dict[str, Any],
+    sizes: dict[str, int],
+    voxel: Any,
+    flags: DimensionFlags,
+    t_step_ms: float | None,
+    z_values: np.ndarray | None,
+    t_values: np.ndarray | None,
+    x_values: np.ndarray | None,
+    y_values: np.ndarray | None,
+) -> ChannelMetadata:
+    name = channel_meta.channel.name or f"Channel{index}"
+    excitation_meta = channel_meta.channel.excitationLambdaNm
+    emission_meta = channel_meta.channel.emissionLambdaNm
+
+    device_setting = plane_settings.get("DeviceSetting", {})
+    light_source, line_wavelength, power_mw = _active_excitation(device_setting)
+
+    channel = _build_channel(
+        name=name,
+        excitation_meta=excitation_meta,
+        emission_meta=emission_meta,
+        line_wavelength=line_wavelength,
+    )
+
+    resolution = NominalDimensions(
+        x_size_px=sizes["X"],
+        y_size_px=sizes["Y"],
+        xy_step_um=voxel.x,
+        z_size_px=sizes.get("Z") if flags.is_zstack else None,
+        z_step_um=voxel.z if flags.is_zstack else None,
+        t_size_px=sizes.get("T") if flags.is_timelapse else None,
+        t_step_ms=t_step_ms if flags.is_timelapse else None,
+    )
+
+    measured = MeasuredDimensions(
+        x_values_um=x_values if flags.is_montage else None,
+        y_values_um=y_values if flags.is_montage else None,
+        z_values_um=z_values if flags.is_zstack else None,
+        t_values_ms=t_values if flags.is_timelapse else None,
+    )
+
+    acquisition = _acquisition_settings(plane_settings, channel_meta.microscope)
+    optics = _microscope_config(channel_meta.microscope, light_source, power_mw)
+
+    return ChannelMetadata(
+        channel=channel,
+        timestamp=_julian_to_datetime(frame_channel.time.absoluteJulianDayNumber),
+        dimensions=flags,
+        resolution=resolution,
+        measured=measured,
+        acquisition=acquisition,
+        optics=optics,
+    )
+
+
+def _build_channel(
+    *,
+    name: str,
+    excitation_meta: float | None,
+    emission_meta: float | None,
+    line_wavelength: float | None,
+) -> Channel:
+    """Map an ND2 channel to a :class:`Channel`.
+
+    Label-free contrast (DIC/phase/brightfield) is detected by name; everything
+    else is treated as fluorescence, with the excitation wavelength taken from
+    the channel metadata when present, otherwise from the active light source.
+    """
+    tokens = {token for token in _tokenize(name)}
+    for keywords, channel_cls in _LABEL_FREE_TOKENS:
+        if tokens & keywords:
+            return channel_cls()
+
+    excitation_nm = excitation_meta if excitation_meta else line_wavelength
+    return FluorescenceChannel(
+        excitation_nm=excitation_nm,
+        emission_nm=emission_meta or None,
+        label=name,
+    )
+
+
+def _dimension_flags(sizes: dict[str, int], channels: Sequence[Any]) -> DimensionFlags:
+    flags = DimensionFlags.SPATIAL_2D
+    if sizes.get("Z", 1) > 1:
+        flags |= DimensionFlags.Z_STACK
+    if sizes.get("T", 1) > 1:
+        flags |= DimensionFlags.TIMELAPSE
+    if sizes.get("P", 1) > 1:
+        flags |= DimensionFlags.MONTAGE
+    component_count = channels[0].volume.componentCount if channels else 1
+    if component_count == 3:
+        flags |= DimensionFlags.RGB
+    return flags
+
+
+def _time_step_ms(experiment: Sequence[Any]) -> float | None:
+    """Extract the nominal time step (ms) from a time loop in the experiment."""
+    for loop in experiment:
+        params = getattr(loop, "parameters", None)
+        if params is None:
+            continue
+        periods = getattr(params, "periods", None)
+        if periods:
+            return periods[0].periodMs
+        period_ms = getattr(params, "periodMs", None)
+        if period_ms is not None:
+            return period_ms
     return None
 
 
-class _NikonMetadataParser:
-    """Parser for extracting metadata from Nikon ND2 files."""
+def _events_table(nf: Any) -> list[dict[str, Any]]:
+    """Per-frame "Recorded Data" rows, or ``[]`` if unavailable.
 
-    def __init__(self, nd2_path: Path, channels: list[Channel] | None = None):
-        self.nd2_path = nd2_path
-        self.channels = channels
-        self._nd2f: nd2.ND2File
+    ``events()`` is unsupported for legacy ND2 files and may raise; callers fall
+    back to nominal/looped values in that case.
+    """
+    try:
+        rows = nf.events(orient="records")
+    except Exception:  # noqa: BLE001 - any failure means "no events", fall back.
+        return []
+    return rows if isinstance(rows, list) else []
 
-    def parse(self, nd2f: nd2.ND2File | None = None) -> InstrumentMetadata:
-        """Parse the ND2 file and extract all metadata.
 
-        Args:
-            nd2f: Optional already-opened ND2File handle. If not provided, the file
-                is opened from self.nd2_path.
-        """
-        if nd2f is not None:
-            return self._extract_metadata(nd2f)
-        with nd2.ND2File(self.nd2_path) as opened:
-            return self._extract_metadata(opened)
+# Candidate column names (by hardware) for the per-frame index of each axis.
+# Matched case-sensitively, exact first then as a substring (see _find_column).
+_Z_INDEX_COLS = ("Z Index",)
+_T_INDEX_COLS = ("T Index",)
+_P_INDEX_COLS = ("P Index", "Point Index", "Multipoint Index", "Position Index")
+# Candidate column names for the recorded stage coordinate / timestamp.
+# "Z-Series" is the focus-relative offset NIS records per plane (centered on 0
+# at focus); "Z Coord" is the absolute stage position.
+_ZSERIES_COLS = ("Z-Series",)
+_Z_COORD_COLS = ("Z Coord",)
+_X_COORD_COLS = ("X Coord",)
+_Y_COORD_COLS = ("Y Coord",)
+_TIME_COLS = ("Time [s]", "Time")
 
-    def _extract_metadata(self, nd2f: nd2.ND2File) -> InstrumentMetadata:
-        """Extract all metadata from an open ND2 file handle."""
-        self._nd2f = nd2f
-        self.sizes = dict(self._nd2f.sizes)
-        self.text_info = TextInfo(self._nd2f.text_info)
-        self.events = self._nd2f.events()
-        self.dimensions = self._get_dimension_flags()
-        self.timestamp = self._parse_timestamp()
 
-        channel_metadata_list = self._parse_all_channels()
-        return InstrumentMetadata(self.sizes, channel_metadata_list)
+def _find_column(events: list[dict[str, Any]], candidates: tuple[str, ...]) -> str | None:
+    """Return the first event column matching ``candidates`` (exact, then substring)."""
+    if not events:
+        return None
+    keys = list(events[0].keys())
+    for candidate in candidates:
+        if candidate in keys:
+            return candidate
+    for candidate in candidates:
+        for key in keys:
+            if candidate in key:
+                return key
+    return None
 
-    def _parse_all_channels(self) -> list[ChannelMetadata]:
-        """Parse metadata for all channels in the ND2 file."""
-        if self._nd2f.metadata.contents is None:
-            raise ValueError(f"No metadata contents available in {self.nd2_path}")
 
-        # Validate channels list length if provided
-        num_channels = self._nd2f.metadata.contents.channelCount
-        if self.channels is not None and len(self.channels) != num_channels:
-            raise ValueError(
-                f"Expected {num_channels} channels but got {len(self.channels)} in channels list"
-            )
+def _axis_values(
+    events: list[dict[str, Any]],
+    index_cols: tuple[str, ...],
+    value_cols: tuple[str, ...],
+    size: int,
+    *,
+    scale: float = 1.0,
+    zero: bool = False,
+    center: bool = False,
+) -> np.ndarray | None:
+    """One recorded value per axis index, taken from the events table.
 
-        channel_metadata_list = []
-        for i in range(num_channels):
-            channel = self.channels[i] if self.channels else None
-            channel_metadata = self._parse_channel_metadata(i, channel)
-            channel_metadata_list.append(channel_metadata)
+    Rows are per (flattened) frame, so the first row seen for each index along
+    the target axis is used. Returns ``None`` (so the caller can fall back) when
+    the needed columns are missing or any index/value is absent or ``NaN``.
 
-        return channel_metadata_list
-
-    def _parse_channel_metadata(
-        self,
-        channel_index: int,
-        channel: Channel | None = None,
-    ) -> ChannelMetadata:
-        """Parse metadata for a specific channel."""
-        nd2_channel = self._get_nd2_channel_metadata(channel_index)
-
-        if channel is None:
-            channel = _resolve_optical_config(nd2_channel.channel.name)
-            if channel is None:
-                channel = self._build_fallback_channel(nd2_channel.channel)
-
-        resolution = self._parse_nominal_dimensions(nd2_channel)
-        measured = self._parse_measured_dimensions()
-        acquisition = self._parse_acquisition_settings(nd2_channel, channel_index)
-        optics = self._parse_microscope_settings(nd2_channel)
-
-        return ChannelMetadata(
-            channel=channel,
-            timestamp=self.timestamp,
-            dimensions=self.dimensions,
-            resolution=resolution,
-            measured=measured,
-            acquisition=acquisition,
-            optics=optics,
-        )
-
-    def _get_nd2_channel_metadata(self, channel_index: int) -> nd2.structures.Channel:
-        """Get the nd2 channel metadata object for a specific channel."""
-        channels = self._nd2f.metadata.channels
-        if channels is None:
-            raise ValueError("No channel metadata available")
-        return channels[channel_index]
-
-    def _build_fallback_channel(self, channel_meta: nd2.structures.ChannelMeta) -> Channel:
-        """Synthesize a Channel from ND2 metadata for an unrecognized optical config.
-
-        Used when an optical configuration name does not match any predefined channel.
-        The unrecognized config is assumed to be fluorescence; excitation/emission
-        wavelengths are carried over when present and the ND2 config name is kept as
-        the channel label.
-        """
-        excitation_nm = channel_meta.excitationLambdaNm or None
-        emission_nm = channel_meta.emissionLambdaNm or None
-
-        warnings.warn(
-            f"Optical configuration '{channel_meta.name}' did not match a predefined "
-            "channel; synthesizing a channel from ND2 metadata. Pass a Channel instance "
-            "to prevent this warning.",
-            MetadataWarning,
-            stacklevel=2,
-        )
-
-        return FluorescenceChannel(
-            excitation_nm=excitation_nm,
-            emission_nm=emission_nm,
-            label=channel_meta.name,
-        )
-
-    def _get_dimension_flags(self) -> DimensionFlags:
-        """Determine dimension flags from ND2 file sizes for a single channel."""
-        dimensions = DimensionFlags(0)
-
-        if "T" in self.sizes and self.sizes["T"] > 1:
-            dimensions |= DimensionFlags.TIMELAPSE
-        if "Z" in self.sizes and self.sizes["Z"] > 1:
-            dimensions |= DimensionFlags.Z_STACK
-        if "S" in self.sizes and self.sizes["S"] > 1:
-            dimensions |= DimensionFlags.RGB
-        if "P" in self.sizes and self.sizes["P"] > 1:
-            dimensions |= DimensionFlags.MONTAGE
-
-        return dimensions
-
-    def _parse_timestamp(self) -> datetime:
-        """Parse timestamp from text_info."""
-        if "date" not in self.text_info:
-            raise ValueError("Missing 'date' field in text_info")
-
-        timestamp = self.text_info["date"]
-        return datetime.strptime(timestamp, "%m/%d/%Y %I:%M:%S %p")
-
-    def _parse_nominal_dimensions(self, nd2_channel: nd2.structures.Channel) -> NominalDimensions:
-        """Parse nominal dimensions from nd2 channel metadata."""
-        # Spatial dimensions
-        x_size_px, y_size_px, z_size_px = nd2_channel.volume.voxelCount
-        x_step_um, y_step_um, z_step_um = nd2_channel.volume.axesCalibration
-        xy_step_um = (x_step_um + y_step_um) / 2
-
-        # Time dimension - extract from events if available
-        t_size_px = None
-        t_step_ms = None
-        if self.events:
-            t_size_px = self.sizes.get("T")
-            t_step_ms = self.events[0].get("Exposure Time [ms]")
-
-        return NominalDimensions(
-            x_size_px=x_size_px,
-            y_size_px=y_size_px,
-            xy_step_um=xy_step_um,
-            z_size_px=z_size_px if self.dimensions.is_zstack else None,
-            z_step_um=z_step_um if self.dimensions.is_zstack else None,
-            t_size_px=t_size_px if self.dimensions.is_timelapse else None,
-            t_step_ms=t_step_ms if self.dimensions.is_timelapse else None,
-            w_size_px=None,
-            w_step_nm=None,
-        )
-
-    def _parse_measured_dimensions(self) -> MeasuredDimensions:
-        """Parse measured dimension values from event metadata.
-
-        Extracts actual z-positions, frame intervals, and wavelengths from the
-        events metadata rather than nominal values.
-        """
-        x_values_um = None
-        y_values_um = None
-        z_values_um = None
-        t_values_ms = None
-        w_values_nm = None
-
-        events_dataframe = pd.DataFrame(self.events)
-
-        if len(events_dataframe) < 2:
-            return MeasuredDimensions(
-                z_values_um=z_values_um,
-                t_values_ms=t_values_ms,
-                w_values_nm=w_values_nm,
-            )
-
-        if self.dimensions.is_montage:
-            x_values_um, y_values_um = self._extract_xy_coordinates(events_dataframe)
-
-        if self.dimensions.is_zstack:
-            z_values_um = self._extract_z_coordinates(events_dataframe)
-
-        if self.dimensions.is_timelapse:
-            t_values_ms = self._extract_time_coordinates(events_dataframe)
-
-        if self.dimensions.is_spectral:
-            w_values_nm = self._extract_wavelength_coordinates(events_dataframe)
-
-        return MeasuredDimensions(
-            x_values_um=x_values_um,
-            y_values_um=y_values_um,
-            z_values_um=z_values_um,
-            t_values_ms=t_values_ms,
-            w_values_nm=w_values_nm,
-        )
-
-    def _extract_xy_coordinates(
-        self, events_dataframe: pd.DataFrame
-    ) -> tuple[Float64Array, Float64Array]:
-        """Extract stage coordinates from events for tiled imaging.
-
-        Not yet implemented - stage position data extraction needs additional testing.
-        """
-        raise NotImplementedError(
-            "(X, Y) position extraction for tiled imaging is not yet implemented"
-        )
-
-    def _extract_z_coordinates(self, events_dataframe: pd.DataFrame) -> Float64Array:
-        """Extract z-coordinates from events, centered around z=0.
-
-        Dynamically selects the appropriate z-column based on which has variation
-        (different hardware configurations use different column names).
-        """
-        z_columns = ["Z Coord [µm]", "Ti2 ZDrive [µm]", "NIDAQ Piezo Z (name: Piezo Z) [µm]"]
-
-        # Find which z column exists and has variation
-        dynamic_z_column = None
-        for z_col in z_columns:
-            if z_col in events_dataframe.columns and events_dataframe[z_col].nunique() > 1:
-                dynamic_z_column = z_col
-                break
-
-        if dynamic_z_column is None:
-            raise ValueError("No varying Z coordinate column found in events")
-
-        if "Z-Series" not in events_dataframe.columns:
-            raise ValueError("Missing 'Z-Series' column in events metadata")
-
-        z_values_um = events_dataframe[dynamic_z_column].to_numpy(dtype=float, copy=True)
-        z_center_index = events_dataframe["Z-Series"].abs().idxmin()
-        z_center = events_dataframe.loc[z_center_index, dynamic_z_column]
-        z_values_um -= z_center
-
-        return z_values_um
-
-    def _extract_time_coordinates(self, events_dataframe: pd.DataFrame) -> Float64Array:
-        """Extract time coordinates from events, relative to the first frame.
-
-        Returns time values in milliseconds, zeroed to the start of acquisition.
-        """
-        if "Time [s]" not in events_dataframe.columns:
-            raise ValueError("Missing 'Time [s]' column in events metadata")
-
-        t_values_s = events_dataframe["Time [s]"].to_numpy(dtype=float)
-        t_values_ms = 1e3 * (t_values_s - t_values_s.min())
-        return t_values_ms
-
-    def _extract_wavelength_coordinates(self, events_dataframe: pd.DataFrame) -> Float64Array:
-        """Extract wavelength coordinates from events for spectral imaging.
-
-        Not yet implemented - spectral data extraction needs additional testing.
-        """
-        raise NotImplementedError(
-            "Wavelength extraction for spectral imaging is not yet implemented"
-        )
-
-    def _parse_acquisition_settings(
-        self,
-        nd2_channel: nd2.structures.Channel,
-        channel_index: int,
-    ) -> AcquisitionSettings:
-        """Parse acquisition settings from nd2 channel metadata and text_info."""
-        sample_text = self._extract_sample_text(channel_index)
-        exposure_time_s = self._parse_exposure_time(sample_text)
-        zoom = nd2_channel.microscope.zoomMagnification
-        binning = self._parse_binning(sample_text)
-
-        return AcquisitionSettings(
-            exposure_time_s=exposure_time_s,
-            zoom=zoom,
-            binning=binning,
-            pixel_dwell_time_us=None,
-            line_scan_speed_hz=None,
-            line_averaging=None,
-            line_accumulation=None,
-            frame_averaging=None,
-            frame_accumulation=None,
-        )
-
-    def _parse_microscope_settings(self, nd2_channel: nd2.structures.Channel) -> MicroscopeConfig:
-        """Parse microscope settings from nd2 channel metadata."""
-        magnification = nd2_channel.microscope.objectiveMagnification
-        numerical_aperture = nd2_channel.microscope.objectiveNumericalAperture
-
-        return MicroscopeConfig(
-            magnification=int(magnification) if magnification is not None else 0,
-            numerical_aperture=numerical_aperture or 0.0,
-            objective=nd2_channel.microscope.objectiveName,
-            light_source=None,  # TODO: extract light source info
-            power_mw=None,  # TODO: convert power_pct to mW
-        )
-
-    def _extract_sample_text(self, channel_index: int) -> str:
-        """Extract 'Sample' section from text_info for a specific channel.
-
-        For single-channel files, returns entire 'capturing' field.
-        For multi-channel files, extracts specific 'Sample N:' section.
-        """
-        if "capturing" not in self.text_info:
-            raise ValueError("Missing 'capturing' field in text_info")
-
-        sample_index = channel_index + 1
-        sample_regex = rf"Sample {sample_index}:[\s\S]*?(?=Sample \d|$)"
-        sample_match = re.search(sample_regex, self.text_info["capturing"])
-
-        return sample_match.group(0) if sample_match else self.text_info["capturing"]
-
-    def _extract_plane_text(self, channel_index: int) -> str:
-        """Extract 'Plane' section from text_info for a specific channel.
-
-        For single-channel files, returns entire 'description' field.
-        For multi-channel files, extracts specific 'Plane #N:' section.
-        """
-        if "description" not in self.text_info:
-            raise ValueError("Missing 'description' field in text_info")
-
-        plane_index = channel_index + 1
-        plane_regex = rf"Plane #{plane_index}:[\s\S]*?(?=Plane #\d|$)"
-        plane_match = re.search(plane_regex, self.text_info["description"])
-
-        return plane_match.group(0) if plane_match else self.text_info["description"]
-
-    def _parse_binning(self, sample_text: str) -> str | None:
-        """Parse binning from sample text."""
-        for line in sample_text.splitlines():
-            if "Binning" in line:
-                return line.split(":")[1].strip()
+    ``zero`` shifts values so the first index is 0; ``center`` shifts them so the
+    midpoint of the range is 0 (i.e. symmetric +/- about the stack center).
+    """
+    index_col = _find_column(events, index_cols)
+    value_col = _find_column(events, value_cols)
+    if index_col is None or value_col is None:
         return None
 
-    def _parse_exposure_time(self, sample_text: str) -> float | None:
-        """Parse exposure time from sample text, converting to seconds."""
-        pattern = r"Exposure: (\d+(?:\.\d+)?) (\w+)"
-        for line in sample_text.splitlines():
-            if "Exposure" in line:
-                match = re.search(pattern, line)
-                if match:
-                    time, unit = match.groups()
-                    time_s = self._convert_time_to_s(time, unit)
-                    return time_s
+    by_index: dict[int, Any] = {}
+    for row in events:
+        raw_index = row.get(index_col)
+        value = row.get(value_col)
+        if raw_index is None or value is None:
+            continue
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError):
+            continue
+        by_index.setdefault(index, value)
+
+    if any(i not in by_index for i in range(size)):
         return None
-
-    def _parse_power(self, plane_text: str) -> float | None:
-        """Parse laser power percentage from plane text."""
-
-        # Parsing the power is tricky:
-        #     1. Units are percentages and total power is unknown
-        #     2. Not trivial to determine the light source for non-fluorescence
-        #        channels (e.g. BRIGHTFIELD, DIC)
-
-        #     Example snippet of plane_text from tests/data/example-multichannel.nd2:
-        #         Plane #1:
-        #             Name: Mono
-        #             Component Count: 1
-        #             Modality: Widefield Fluorescence
-        #             Camera Settings:   Exposure: 20 ms
-        #             ...
-        #             LUN-F, MultiLaser(LUN-F):
-        #                 Line:3; ExW:561; Power: 82.5; On
-
-        #             Lida, Shutter(Lida): Active
-        #             Lida, MultiLaser(Lida):
-        #                 Line:1; ExW:450; Power:  5.0; On
-        #                 Line:2; ExW:550; Power:  5.0; On
-        #                 Line:3; ExW:640; Power:  5.0; On
-
-        pattern = r"Power:\s*(-?\d+(\.\d*)?|-?\.\d+)"
-        for line in plane_text.splitlines():
-            if "Power" in line:
-                match = re.search(pattern, line)
-                if match:
-                    return float(match.group(1))
+    values = np.array([by_index[i] for i in range(size)], dtype=float) * scale
+    if np.isnan(values).any():
         return None
+    if zero:
+        return values - values[0]
+    if center:
+        return values - (values.max() + values.min()) / 2.0
+    return values
 
-    @staticmethod
-    def _convert_time_to_s(time: str | float, unit: str) -> float:
-        """Convert time to seconds from various units."""
-        time_value = float(time)
-        if "h" in unit:
-            return 3600 * time_value
-        elif unit == "min":
-            return 60 * time_value
-        elif unit == "s":
-            return time_value
-        elif unit == "ms":
-            return time_value / 1000
-        elif unit in ("us", "µs"):
-            return time_value / 1_000_000
-        else:
-            raise ValueError(f"Unknown unit of time: {unit}")
+
+def _frame_z_values_um(
+    events: list[dict[str, Any]], sizes: dict[str, int], z_step_um: float
+) -> np.ndarray:
+    """Measured Z positions (um, +/- about focus), else nominal centered spacing.
+
+    Prefers the focus-relative ``Z-Series`` column, then the absolute ``Z Coord``
+    centered on the stack midpoint, then a centered nominal range.
+    """
+    z_size = sizes["Z"]
+    series = _axis_values(events, _Z_INDEX_COLS, _ZSERIES_COLS, z_size)
+    if series is not None:
+        return series
+    measured = _axis_values(events, _Z_INDEX_COLS, _Z_COORD_COLS, z_size, center=True)
+    if measured is not None:
+        return measured
+    return _nominal_z_values_um(sizes, z_step_um)
+
+
+def _frame_t_values_ms(events: list[dict[str, Any]], nf: Any, sizes: dict[str, int]) -> np.ndarray:
+    """Measured elapsed time (ms, zeroed to the first timepoint) from events, else frames."""
+    measured = _axis_values(events, _T_INDEX_COLS, _TIME_COLS, sizes["T"], scale=1000.0, zero=True)
+    if measured is not None:
+        return measured
+    return _measured_t_values_ms(nf, sizes)
+
+
+def _frame_xy_values_um(
+    events: list[dict[str, Any]], sizes: dict[str, int]
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Measured per-position stage X/Y (absolute um) from events, else ``(None, None)``."""
+    p_size = sizes.get("P", 1)
+    x_values = _axis_values(events, _P_INDEX_COLS, _X_COORD_COLS, p_size)
+    y_values = _axis_values(events, _P_INDEX_COLS, _Y_COORD_COLS, p_size)
+    return x_values, y_values
+
+
+def _nominal_z_values_um(sizes: dict[str, int], z_step_um: float) -> np.ndarray:
+    """Nominal Z offsets (um) centered on the stack midpoint (+/- about focus)."""
+    z_size = sizes["Z"]
+    return (np.arange(z_size, dtype=float) - (z_size - 1) / 2.0) * z_step_um
+
+
+def _measured_t_values_ms(nf: Any, sizes: dict[str, int]) -> np.ndarray:
+    """Per-frame elapsed time (ms), zeroed to the first timepoint."""
+    t_size = sizes["T"]
+    values = np.empty(t_size, dtype=float)
+    for t in range(t_size):
+        frame_index = _frame_index(sizes, {"T": t})
+        values[t] = nf.frame_metadata(frame_index).channels[0].time.relativeTimeMs
+    return values - values[0]
+
+
+def _frame_index(sizes: dict[str, int], coord: dict[str, int]) -> int:
+    """Row-major linear index over the looped (non C/Y/X) dimensions."""
+    looped = [dim for dim in sizes if dim not in _NON_LOOP_DIMS]
+    index = 0
+    for position, dim in enumerate(looped):
+        stride = 1
+        for later in looped[position + 1 :]:
+            stride *= sizes[later]
+        index += coord.get(dim, 0) * stride
+    return index
+
+
+def _acquisition_settings(plane_settings: dict[str, Any], microscope: Any) -> AcquisitionSettings:
+    exposure_ms = plane_settings.get("ExposureTime")
+    exposure_time_s = exposure_ms / 1000.0 if exposure_ms else None
+
+    camera = plane_settings.get("CameraSetting", {})
+    binning = _binning(camera)
+
+    zoom = getattr(microscope, "zoomMagnification", None)
+
+    return AcquisitionSettings(
+        exposure_time_s=exposure_time_s,
+        zoom=zoom,
+        binning=binning,
+    )
+
+
+def _binning(camera: dict[str, Any]) -> str | None:
+    for fmt in ("FormatFast", "FormatQuality"):
+        desc = camera.get(fmt, {}).get("Desc", {})
+        bin_x = desc.get("BinningX")
+        bin_y = desc.get("BinningY")
+        if bin_x and bin_y and bin_x > 0 and bin_y > 0:
+            return f"{int(bin_x)}x{int(bin_y)}"
+    return None
+
+
+def _microscope_config(
+    microscope: Any,
+    light_source: str | None,
+    power_mw: float | None,
+) -> MicroscopeConfig:
+    magnification = microscope.objectiveMagnification
+    return MicroscopeConfig(
+        magnification=int(round(magnification)) if magnification else 0,
+        numerical_aperture=microscope.objectiveNumericalAperture or 0.0,
+        objective=microscope.objectiveName or None,
+        light_source=light_source,
+        power_mw=power_mw,
+    )
+
+
+def _sample_settings(unstructured: dict[str, Any]) -> dict[str, Any]:
+    """Per-plane ``SampleSetting`` dict keyed by plane index (as a string)."""
+    seq = _first_value(unstructured, "ImageMetadataSeqLV")
+    if not isinstance(seq, dict):
+        return {}
+    sample_setting = (
+        seq.get("SLxPictureMetadata", {}).get("PicturePlanes", {}).get("SampleSetting", {})
+    )
+    return sample_setting if isinstance(sample_setting, dict) else {}
+
+
+def _active_excitation(
+    device_setting: dict[str, Any],
+) -> tuple[str | None, float | None, float | None]:
+    """Return ``(light_source, wavelength_nm, power)`` for the active line.
+
+    Scans the ``MultiLaser`` device settings for lines flagged as used and
+    returns the highest-power one (device name, excitation wavelength, power).
+    """
+    used_lines: list[tuple[str | None, float | None, float]] = []
+    prefix = "MultiLaser_LineUsedLineUsed"
+    for key, used in device_setting.items():
+        if not (key.startswith(prefix) and used):
+            continue
+        suffix = key[len(prefix) :]  # e.g. "0-03"
+        device_index = suffix.split("-", 1)[0]
+        wavelength = device_setting.get(f"MultiLaser_LineUsedLineWavelength{suffix}")
+        power = device_setting.get(f"MultiLaser_PowerLinePower{suffix}") or 0.0
+        device = device_setting.get(f"MultiLaser_PowerKey{device_index}") or device_setting.get(
+            f"MultiLaser_LineUsedKey{device_index}"
+        )
+        used_lines.append((device, wavelength, power))
+
+    if not used_lines:
+        return None, None, None
+
+    device, wavelength, power = max(used_lines, key=lambda line: line[2])
+    return device, wavelength, power or None
+
+
+def _first_value(mapping: dict[str, Any], prefix: str) -> Any:
+    """Return the first value whose key starts with ``prefix`` (handles ``|`` suffixes)."""
+    for key, value in mapping.items():
+        if key.startswith(prefix):
+            return value
+    return None
+
+
+def _tokenize(name: str) -> list[str]:
+    token = []
+    tokens = []
+    for char in name.lower():
+        if char.isalnum():
+            token.append(char)
+        elif token:
+            tokens.append("".join(token))
+            token = []
+    if token:
+        tokens.append("".join(token))
+    return tokens
+
+
+def _julian_to_datetime(julian_day: float) -> datetime:
+    unix_seconds = (julian_day - _JD_UNIX_EPOCH) * 86_400.0
+    return datetime.fromtimestamp(unix_seconds, tz=UTC)
