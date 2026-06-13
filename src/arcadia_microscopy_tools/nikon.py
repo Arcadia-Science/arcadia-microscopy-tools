@@ -56,6 +56,28 @@ _LABEL_FREE_TOKENS: tuple[tuple[frozenset[str], type[Channel]], ...] = (
     ),
 )
 
+# Per-line maximum optical output (mW), keyed by (light-source key, wavelength nm).
+# Values are estimates of the source output (at the fiber/output port), derived
+# from the manufacturer specs:
+#   - LUN-F (Nikon LUN-F XL laser unit): per-line output estimated from the
+#     Nikon laser-unit spec. The LUN-F XL is the higher-power variant, so its
+#     per-line maxima exceed the ~15 mW of the LU-N3/LU-N4 units on the page.
+#     https://www.microscope.healthcare.nikon.com/products/light-sources/lu-n3-lu-n4-laser-units
+#   - Lida (Lumencor Lida): per-line output estimated from the Lumencor datasheet.
+#     https://www.biovis.com/images/light_lumencor/54-10030_LIDA_IJ.pdf
+#
+# NOTE: these are source-side maxima. The actual power delivered at the sample
+# can be up to ~30% lower due to losses through the optical path.
+_MAX_LINE_POWER_MW: dict[tuple[str, int], float] = {
+    ("LUN-F", 405): 50.0,
+    ("LUN-F", 488): 60.0,
+    ("LUN-F", 561): 50.0,
+    ("LUN-F", 640): 40.0,
+    ("Lida", 450): 120.0,
+    ("Lida", 550): 230.0,
+    ("Lida", 640): 170.0,
+}
+
 
 def parse_nd2(path: str | Path) -> InstrumentMetadata:
     """Parse an ND2 file and return its :class:`InstrumentMetadata`.
@@ -153,7 +175,8 @@ def _build_channel_metadata(
     emission_meta = channel_meta.channel.emissionLambdaNm
 
     device_setting = plane_settings.get("DeviceSetting", {})
-    light_source, line_wavelength, power_mw = _active_excitation(device_setting)
+    light_source, line_wavelength, power_percent = _active_excitation(device_setting)
+    power_mw = _line_power_mw(light_source, line_wavelength, power_percent)
 
     channel = _build_channel(
         name=name,
@@ -411,9 +434,7 @@ def _measured_t_values_ms(nf: Any, sizes: dict[str, int]) -> np.ndarray:
     return values - values[0]
 
 
-def _measured_xy_values_um(
-    nf: Any, sizes: dict[str, int]
-) -> tuple[np.ndarray, np.ndarray] | None:
+def _measured_xy_values_um(nf: Any, sizes: dict[str, int]) -> tuple[np.ndarray, np.ndarray] | None:
     """Per-position stage X/Y (um) from frame metadata, or ``None`` if unavailable."""
     p_size = sizes.get("P", 1)
     x_values = np.empty(p_size, dtype=float)
@@ -495,13 +516,35 @@ def _sample_settings(unstructured: dict[str, Any]) -> dict[str, Any]:
     return sample_setting if isinstance(sample_setting, dict) else {}
 
 
+def _line_power_mw(
+    light_source: str | None,
+    wavelength_nm: float | None,
+    power_percent: float | None,
+) -> float | None:
+    """Convert a recorded laser-line percentage to absolute mW.
+
+    Uses :data:`_MAX_LINE_POWER_MW` (a hardware spec, since the ND2 only records
+    a percentage of each line's maximum). Returns ``None`` when the light source,
+    wavelength, or percentage is unknown, or when the line's max power is not in
+    the table -- never a bare percentage masquerading as mW.
+    """
+    if light_source is None or wavelength_nm is None or power_percent is None:
+        return None
+    max_mw = _MAX_LINE_POWER_MW.get((light_source, int(round(wavelength_nm))))
+    if max_mw is None:
+        return None
+    return power_percent / 100.0 * max_mw
+
+
 def _active_excitation(
     device_setting: dict[str, Any],
 ) -> tuple[str | None, float | None, float | None]:
-    """Return ``(light_source, wavelength_nm, power)`` for the active line.
+    """Return ``(light_source, wavelength_nm, power_percent)`` for the active line.
 
     Scans the ``MultiLaser`` device settings for lines flagged as used and
-    returns the highest-power one (device name, excitation wavelength, power).
+    returns the highest-power one (device name, excitation wavelength, and the
+    line power as a *percentage* of the device maximum). Use :func:`_line_power_mw`
+    to convert the percentage to absolute mW.
     """
     used_lines: list[tuple[str | None, float | None, float]] = []
     prefix = "MultiLaser_LineUsedLineUsed"
@@ -511,17 +554,17 @@ def _active_excitation(
         suffix = key[len(prefix) :]  # e.g. "0-03"
         device_index = suffix.split("-", 1)[0]
         wavelength = device_setting.get(f"MultiLaser_LineUsedLineWavelength{suffix}")
-        power = device_setting.get(f"MultiLaser_PowerLinePower{suffix}") or 0.0
+        power_percent = device_setting.get(f"MultiLaser_PowerLinePower{suffix}") or 0.0
         device = device_setting.get(f"MultiLaser_PowerKey{device_index}") or device_setting.get(
             f"MultiLaser_LineUsedKey{device_index}"
         )
-        used_lines.append((device, wavelength, power))
+        used_lines.append((device, wavelength, power_percent))
 
     if not used_lines:
         return None, None, None
 
-    device, wavelength, power = max(used_lines, key=lambda line: line[2])
-    return device, wavelength, power or None
+    device, wavelength, power_percent = max(used_lines, key=lambda line: line[2])
+    return device, wavelength, power_percent or None
 
 
 def _first_value(mapping: dict[str, Any], prefix: str) -> Any:
