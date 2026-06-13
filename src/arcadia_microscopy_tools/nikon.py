@@ -328,7 +328,8 @@ def _axis_values(
 
     Rows are per (flattened) frame, so the first row seen for each index along
     the target axis is used. Returns ``None`` (so the caller can fall back) when
-    the needed columns are missing or any index/value is absent or ``NaN``.
+    the needed columns are missing or any index/value is absent, non-numeric, or
+    ``NaN``.
 
     ``zero`` shifts values so the first index is 0; ``center`` shifts them so the
     midpoint of the range is 0 (i.e. symmetric +/- about the stack center).
@@ -352,7 +353,11 @@ def _axis_values(
 
     if any(i not in by_index for i in range(size)):
         return None
-    values = np.array([by_index[i] for i in range(size)], dtype=float) * scale
+    try:
+        values = np.array([by_index[i] for i in range(size)], dtype=float) * scale
+    except (TypeError, ValueError):
+        # A recorded value wasn't numeric; treat as unavailable and fall back.
+        return None
     if np.isnan(values).any():
         return None
     if zero:
