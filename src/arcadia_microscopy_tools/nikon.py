@@ -7,6 +7,7 @@ ND2 file (no pixel data) and returns a fully-populated
 """
 
 from __future__ import annotations
+import re
 import warnings
 from datetime import UTC, datetime
 from pathlib import Path
@@ -229,11 +230,13 @@ def _build_channel(
     else is treated as fluorescence, with the excitation wavelength taken from
     the channel metadata when present, otherwise from the active light source.
     """
-    tokens = {token for token in _tokenize(name)}
+    tokens = set(_tokenize(name))
     for keywords, channel_cls in _LABEL_FREE_TOKENS:
         if tokens & keywords:
             return channel_cls()
 
+    # ND2 uses 0 (falsy) to mean "no excitation wavelength recorded", so fall
+    # back to the active light source's line wavelength in that case too.
     excitation_nm = excitation_meta if excitation_meta else line_wavelength
     return FluorescenceChannel(
         excitation_nm=excitation_nm,
@@ -250,6 +253,8 @@ def _dimension_flags(sizes: dict[str, int], channels: Sequence[Any]) -> Dimensio
         flags |= DimensionFlags.TIMELAPSE
     if sizes.get("P", 1) > 1:
         flags |= DimensionFlags.MONTAGE
+    # Only 3-component (RGB) data is flagged; SPECTRAL (lambda) acquisitions and
+    # 4-component (RGBA) data are not currently detected here.
     component_count = channels[0].volume.componentCount if channels else 1
     if component_count == 3:
         flags |= DimensionFlags.RGB
@@ -581,17 +586,8 @@ def _first_value(mapping: dict[str, Any], prefix: str) -> Any:
 
 
 def _tokenize(name: str) -> list[str]:
-    token = []
-    tokens = []
-    for char in name.lower():
-        if char.isalnum():
-            token.append(char)
-        elif token:
-            tokens.append("".join(token))
-            token = []
-    if token:
-        tokens.append("".join(token))
-    return tokens
+    """Lowercase alphanumeric runs in ``name`` (splitting on any other char)."""
+    return re.findall(r"[^\W_]+", name.lower())
 
 
 def _julian_to_datetime(julian_day: float) -> datetime:
