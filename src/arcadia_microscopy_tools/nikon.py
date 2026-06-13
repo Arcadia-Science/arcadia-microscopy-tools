@@ -80,25 +80,35 @@ _MAX_LINE_POWER_MW: dict[tuple[str, int], float] = {
 }
 
 
-def parse_nd2(path: str | Path) -> InstrumentMetadata:
+def parse_nd2(
+    path: str | Path, channels: list[Channel] | None = None
+) -> InstrumentMetadata:
     """Parse an ND2 file and return its :class:`InstrumentMetadata`.
 
     Args:
         path: Path to a ``.nd2`` file.
+        channels: Optional list of :class:`Channel` objects (one per image
+            channel, in order) overriding automatic channel detection. When not
+            provided, channels are inferred from the ND2 optical configuration.
 
     Returns:
         An :class:`InstrumentMetadata` describing the image dimensions and the
         per-channel acquisition/optical configuration.
     """
     with nd2.ND2File(str(path)) as nf:
-        return _parse_open(nf)
+        return _parse_open(nf, channels)
 
 
-def load_nd2(path: str | Path) -> tuple[np.ndarray, InstrumentMetadata]:
+def load_nd2(
+    path: str | Path, channels: list[Channel] | None = None
+) -> tuple[np.ndarray, InstrumentMetadata]:
     """Load an ND2 file's pixel data and metadata.
 
     Args:
         path: Path to a ``.nd2`` file.
+        channels: Optional list of :class:`Channel` objects (one per image
+            channel, in order) overriding automatic channel detection. When not
+            provided, channels are inferred from the ND2 optical configuration.
 
     Returns:
         A ``(intensities, metadata)`` tuple, where ``intensities`` is a NumPy
@@ -107,16 +117,22 @@ def load_nd2(path: str | Path) -> tuple[np.ndarray, InstrumentMetadata]:
     """
     with nd2.ND2File(str(path)) as nf:
         intensities = nf.asarray()
-        metadata = _parse_open(nf)
+        metadata = _parse_open(nf, channels)
     return intensities, metadata
 
 
-def _parse_open(nf: Any) -> InstrumentMetadata:
+def _parse_open(nf: Any, channel_overrides: list[Channel] | None = None) -> InstrumentMetadata:
     """Build :class:`InstrumentMetadata` from an already-open :class:`nd2.ND2File`."""
     sizes = dict(nf.sizes)
     voxel = nf.voxel_size()
     channels = nf.metadata.channels or []
     unstructured = nf.unstructured_metadata()
+
+    if channel_overrides is not None and len(channel_overrides) != len(channels):
+        raise ValueError(
+            f"Expected {len(channels)} channels but got {len(channel_overrides)} "
+            "in channels list"
+        )
 
     flags = _dimension_flags(sizes, channels)
     t_step_ms = _time_step_ms(nf.experiment)
@@ -149,6 +165,7 @@ def _parse_open(nf: Any) -> InstrumentMetadata:
             t_values=t_values,
             x_values=x_values,
             y_values=y_values,
+            channel_override=channel_overrides[index] if channel_overrides else None,
         )
         for index, channel_meta in enumerate(channels)
     ]
@@ -170,6 +187,7 @@ def _build_channel_metadata(
     t_values: np.ndarray | None,
     x_values: np.ndarray | None,
     y_values: np.ndarray | None,
+    channel_override: Channel | None = None,
 ) -> ChannelMetadata:
     name = channel_meta.channel.name or f"Channel{index}"
     excitation_meta = channel_meta.channel.excitationLambdaNm
@@ -179,7 +197,7 @@ def _build_channel_metadata(
     light_source, line_wavelength, power_percent = _active_excitation(device_setting)
     power_mw = _line_power_mw(light_source, line_wavelength, power_percent)
 
-    channel = _build_channel(
+    channel = channel_override or _build_channel(
         name=name,
         excitation_meta=excitation_meta,
         emission_meta=emission_meta,
