@@ -71,3 +71,6 @@ venv/
 
 # Large/local microscopy test files
 src/arcadia_microscopy_tools/tests/data/local/
+
+# Local scratch files
+docs/examples/scratch-*.ipynb
