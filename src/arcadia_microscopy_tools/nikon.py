@@ -52,7 +52,7 @@ _LABEL_FREE_TOKENS: tuple[tuple[frozenset[str], type[Channel]], ...] = (
     (frozenset({"dic"}), DICChannel),
     (frozenset({"phase", "ph", "phc"}), PhaseChannel),
     (
-        frozenset({"brightfield", "bright", "bf", "trans", "transmitted", "td", "bria"}),
+        frozenset({"brightfield", "bright", "bf", "trans", "transmitted", "td", "mono"}),
         BrightfieldChannel,
     ),
 )
@@ -80,9 +80,7 @@ _MAX_LINE_POWER_MW: dict[tuple[str, int], float] = {
 }
 
 
-def parse_nd2(
-    path: str | Path, channels: list[Channel] | None = None
-) -> InstrumentMetadata:
+def parse_nd2(path: str | Path, channels: list[Channel] | None = None) -> InstrumentMetadata:
     """Parse an ND2 file and return its :class:`InstrumentMetadata`.
 
     Args:
@@ -130,8 +128,7 @@ def _parse_open(nf: Any, channel_overrides: list[Channel] | None = None) -> Inst
 
     if channel_overrides is not None and len(channel_overrides) != len(channels):
         raise ValueError(
-            f"Expected {len(channels)} channels but got {len(channel_overrides)} "
-            "in channels list"
+            f"Expected {len(channels)} channels but got {len(channel_overrides)} in channels list"
         )
 
     flags = _dimension_flags(sizes, channels)
@@ -246,16 +243,20 @@ def _build_channel(
 
     Label-free contrast (DIC/phase/brightfield) is detected by name; everything
     else is treated as fluorescence, with the excitation wavelength taken from
-    the channel metadata when present, otherwise from the active light source.
+    the active light source's line wavelength (the channel-metadata value is
+    unreliable; see below), falling back to the channel metadata only when no
+    active line is recorded.
     """
     tokens = set(_tokenize(name))
     for keywords, channel_cls in _LABEL_FREE_TOKENS:
         if tokens & keywords:
             return channel_cls()
 
-    # ND2 uses 0 (falsy) to mean "no excitation wavelength recorded", so fall
-    # back to the active light source's line wavelength in that case too.
-    excitation_nm = excitation_meta if excitation_meta else line_wavelength
+    # NIS records an unreliable per-channel excitationLambdaNm (constant 405 for
+    # the LUN-F laser), so the active laser line from the per-plane device
+    # settings is authoritative; fall back to the channel-metadata wavelength
+    # only when no active line is recorded.
+    excitation_nm = line_wavelength if line_wavelength else (excitation_meta or None)
     return FluorescenceChannel(
         excitation_nm=excitation_nm,
         emission_nm=emission_meta or None,
