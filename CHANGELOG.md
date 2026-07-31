@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.0] - 2026-06-09
+## [0.5.0] - 2026-07-31
 
 ### Changed (breaking)
 - `Channel` is now an abstract base class with one concrete subclass per contrast modality (`BrightfieldChannel`, `DICChannel`, `PhaseChannel`, `FluorescenceChannel`, `SRSChannel`, `CARSChannel`, `SHGChannel`). A channel's identity is its optical configuration (modality plus only the facets relevant to it); the flat `Channel(name, color, excitation_nm, emission_nm)` constructor is removed
@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `display.py` module with `wavelength_to_hex()` and `channel_color()`
 - `Modality`, `DetectionGeometry`, the concrete `*Channel` classes, `SpectralChannel`, `channel_color`, and `wavelength_to_hex` are exported from the package root
+- `MicroscopyImage.from_nd2_path()` and `from_lif_path()` accept an optional `channels` list to override automatic channel detection (must match the file's channel count)
+
+### Changed
+- Nikon ND2 fluorescence channels now derive excitation wavelength from the active laser line in per-plane device settings; the channel-metadata `excitationLambdaNm` is unreliable for some instruments (e.g. LUN-F) and is used only as a fallback
+- Nikon ND2 `MicroscopeConfig.power_mw` is now converted from recorded laser-line percentage to absolute milliwatts using hardware max-power specs
+- Nikon ND2 montage X/Y coordinates fall back to per-frame stage positions from frame metadata when the events table lacks coordinate columns
+- Nikon ND2 axis-value parsing treats non-numeric recorded values as unavailable and falls back rather than raising
 
 ## [0.4.1] - 2026-06-09
 
