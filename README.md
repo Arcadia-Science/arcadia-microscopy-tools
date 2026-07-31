@@ -68,7 +68,7 @@ image = MicroscopyImage.from_nd2_path(example_nd2_path)
 # Access basic properties
 image.shape          # Array shape: (4, 256, 256)
 image.sizes          # Dimension mapping: {'C': 4, 'Y': 256, 'X': 256}
-image.channels       # List of Channel objects: [Channel(name='BRIGHTFIELD', ...), ...]
+image.channels       # List of Channel objects: [BrightfieldChannel(), FluorescenceChannel(...), ...]
 image.num_channels   # Number of channels: 4
 image.dimensions     # Axes present: <DimensionFlags.MULTICHANNEL: 1>
 image.metadata       # Combined instrument and optional sample metadata

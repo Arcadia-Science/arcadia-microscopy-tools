@@ -1,102 +1,214 @@
-"""Microscopy channel definitions and wavelength-to-color utilities."""
+"""Imaging channel model.
+
+A channel is the atomic acquisition unit: one detection configuration that
+yields one image plane per (z, t, position). A channel's identity is its
+physical/optical configuration -- the contrast :class:`Modality` plus only the
+facets that are meaningful for that modality (spectral bands, detection
+geometry). Human-readable names and display colors are deliberately *not* part
+of a channel's identity:
+
+- every channel exposes a human-readable ``name`` (metadata, never identity)
+- display colors live in :mod:`arcadia_microscopy_tools.display`.
+"""
 
 from __future__ import annotations
-import re
-from dataclasses import dataclass
-
-import colour
-import numpy as np
-
-_HEX_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}){1,2}$")
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import ClassVar
 
 
-def wavelength_to_hex(wavelength_nm: float) -> str:
-    """Convert a visible-spectrum wavelength to a hex color string.
+class Modality(Enum):
+    """Physical contrast mechanism that forms an image."""
 
-    Args:
-        wavelength_nm: Wavelength in nanometers (360-780).
+    BRIGHTFIELD = "brightfield"
+    DIC = "dic"
+    PHASE = "phase"
+    FLUORESCENCE = "fluorescence"
+    SRS = "srs"
+    CARS = "cars"
+    SHG = "shg"
 
-    Returns:
-        Hex color string, e.g. ``"#1A2BFF"``.
 
-    Raises:
-        ValueError: If wavelength is outside the visible range.
-    """
-    if not 360 <= wavelength_nm <= 780:
-        raise ValueError(
-            f"Wavelength must be in the visible range (360-780 nm), got {wavelength_nm} nm"
-        )
-    xyz = colour.wavelength_to_XYZ(wavelength_nm)
-    rgb = np.clip(colour.XYZ_to_sRGB(xyz), 0, 1)
-    r, g, b = (rgb * 255).astype(int)
-    return f"#{r:02X}{g:02X}{b:02X}"
+class DetectionGeometry(Enum):
+    """Direction in which signal is collected relative to illumination."""
+
+    EPI = "epi"  # reflected / backward (incl. non-descanned epi detection)
+    FORWARD = "forward"  # transmitted
 
 
 @dataclass(frozen=True)
-class Channel:
-    """A microscopy imaging channel.
+class Channel(ABC):
+    """An imaging channel: one detection configuration producing one image plane.
 
-    Attributes:
-        name: Human-readable channel identifier (e.g. ``"DAPI"``).
-        color: Hex color string used for visualization (e.g. ``"#0033FF"``).
-        excitation_nm: Excitation wavelength in nanometers, if known.
-        emission_nm: Emission wavelength in nanometers, if known.
+    Subclasses model a single contrast :class:`Modality` and expose only the
+    facets relevant to it. Equality and hashing are based on the identifying
+    facets (never on the human-readable name or display color), so two channels
+    compare equal iff they describe the same optical configuration.
     """
 
-    name: str
-    color: str
+    modality: ClassVar[Modality]
+    # ``geometry`` is declared on each concrete subclass: a ``ClassVar`` where the
+    # detection geometry is fixed by physics (label-free, fluorescence, SRS) and an
+    # identifying field where it is a free choice (CARS, SHG).
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Human-readable label for the channel (metadata, not identity)."""
+
+
+# ── Label-free transmitted-contrast channels ────────────────────────────────
+
+
+@dataclass(frozen=True)
+class BrightfieldChannel(Channel):
+    """Transmitted-light brightfield contrast."""
+
+    modality: ClassVar[Modality] = Modality.BRIGHTFIELD
+    geometry: ClassVar[DetectionGeometry] = DetectionGeometry.FORWARD
+
+    @property
+    def name(self) -> str:
+        return "BRIGHTFIELD"
+
+
+@dataclass(frozen=True)
+class DICChannel(Channel):
+    """Differential interference contrast."""
+
+    modality: ClassVar[Modality] = Modality.DIC
+    geometry: ClassVar[DetectionGeometry] = DetectionGeometry.FORWARD
+
+    @property
+    def name(self) -> str:
+        return "DIC"
+
+
+@dataclass(frozen=True)
+class PhaseChannel(Channel):
+    """Phase contrast."""
+
+    modality: ClassVar[Modality] = Modality.PHASE
+    geometry: ClassVar[DetectionGeometry] = DetectionGeometry.FORWARD
+
+    @property
+    def name(self) -> str:
+        return "PHASE"
+
+
+# ── Spectral channels (carry excitation/emission wavelengths) ────────────────
+
+
+@dataclass(frozen=True, kw_only=True)
+class SpectralChannel(Channel):
+    """Base for channels whose identity includes excitation/emission wavelengths.
+
+    Attributes:
+        excitation_nm: Excitation wavelength in nanometers, if known.
+        emission_nm: Emission wavelength in nanometers, if known.
+        label: Optional human-readable name (e.g. ``"DAPI"``). Does not
+            participate in equality or hashing.
+    """
+
     excitation_nm: float | None = None
     emission_nm: float | None = None
+    label: str = field(default="", compare=False)
 
     def __post_init__(self) -> None:
-        if not _HEX_RE.match(self.color):
-            raise ValueError(f"color must be a hex code like '#FF0000', got '{self.color}'")
         if self.excitation_nm is not None and self.excitation_nm <= 0:
             raise ValueError("excitation_nm must be positive")
         if self.emission_nm is not None and self.emission_nm <= 0:
             raise ValueError("emission_nm must be positive")
 
-    @classmethod
-    def from_wavelength(
-        cls,
-        wavelength_nm: float,
-        *,
-        name: str | None = None,
-        is_excitation: bool = True,
-    ) -> Channel:
-        """Create a channel with a color derived from a visible wavelength.
+    @property
+    def name(self) -> str:
+        return self.label or self._default_name()
 
-        Args:
-            wavelength_nm: Wavelength in nanometers (360-780).
-            name: Channel name. Defaults to ``"{wavelength}nm"``.
-            is_excitation: If True (default), ``wavelength_nm`` is stored as excitation.
-                Otherwise it is stored as emission.
-        """
-        hex_color = wavelength_to_hex(wavelength_nm)
-        name = name or f"{wavelength_nm:.0f}nm"
-        wl = round(wavelength_nm, 1)
-        return cls(
-            name=name,
-            color=hex_color,
-            excitation_nm=wl if is_excitation else None,
-            emission_nm=wl if not is_excitation else None,
-        )
+    @abstractmethod
+    def _default_name(self) -> str:
+        """Canonical name derived from the channel's identifying facets."""
 
 
-# ── Predefined channels ─────────────────────────────────────────────────────
+@dataclass(frozen=True, kw_only=True)
+class FluorescenceChannel(SpectralChannel):
+    """Widefield or confocal fluorescence, identified by its spectral bands."""
 
-BRIGHTFIELD = Channel("BRIGHTFIELD", "#FFFFFF")
-DIC = Channel("DIC", "#FFFFFF")
-PHASE = Channel("PHASE", "#DDDDDD")
-DAPI = Channel("DAPI", "#0033FF", excitation_nm=405, emission_nm=450)
-FITC = Channel("FITC", "#07FF00", excitation_nm=488, emission_nm=512)
-TRITC = Channel("TRITC", "#FFBF00", excitation_nm=561, emission_nm=595)
-CY5 = Channel("CY5", "#A30000", excitation_nm=640, emission_nm=665)
-SRS = Channel("SRS", "#E63535")
-E_CARS = Channel("E-CARS", "#AB1299")
-F_CARS = Channel("F-CARS", "#AB1299")
-E_SHG = Channel("E-SHG", "#F29B4F")
-F_SHG = Channel("F-SHG", "#F29B4F")
+    modality: ClassVar[Modality] = Modality.FLUORESCENCE
+    geometry: ClassVar[DetectionGeometry] = DetectionGeometry.EPI
+
+    def _default_name(self) -> str:
+        if self.excitation_nm is not None and self.emission_nm is not None:
+            return f"Ex{self.excitation_nm:.0f}/Em{self.emission_nm:.0f}"
+        if self.excitation_nm is not None:
+            return f"Ex{self.excitation_nm:.0f}"
+        if self.emission_nm is not None:
+            return f"Em{self.emission_nm:.0f}"
+        return self.modality.name
+
+
+@dataclass(frozen=True, kw_only=True)
+class SRSChannel(SpectralChannel):
+    """Stimulated Raman scattering (loss-based; detected in transmission)."""
+
+    modality: ClassVar[Modality] = Modality.SRS
+    geometry: ClassVar[DetectionGeometry] = DetectionGeometry.FORWARD
+
+    def _default_name(self) -> str:
+        return "SRS"
+
+
+@dataclass(frozen=True, kw_only=True)
+class CARSChannel(SpectralChannel):
+    """Coherent anti-Stokes Raman scattering.
+
+    Detection geometry (epi vs forward) is an identifying facet here: ``E-CARS``
+    and ``F-CARS`` are distinct channels of the same modality.
+    """
+
+    modality: ClassVar[Modality] = Modality.CARS
+    geometry: DetectionGeometry = DetectionGeometry.EPI
+
+    def _default_name(self) -> str:
+        prefix = "E" if self.geometry is DetectionGeometry.EPI else "F"
+        return f"{prefix}-CARS"
+
+
+@dataclass(frozen=True, kw_only=True)
+class SHGChannel(SpectralChannel):
+    """Second-harmonic generation.
+
+    Detection geometry (epi vs forward) is an identifying facet here: ``E-SHG``
+    and ``F-SHG`` are distinct channels of the same modality.
+    """
+
+    modality: ClassVar[Modality] = Modality.SHG
+    geometry: DetectionGeometry = DetectionGeometry.EPI
+
+    def _default_name(self) -> str:
+        prefix = "E" if self.geometry is DetectionGeometry.EPI else "F"
+        return f"{prefix}-SHG"
+
+
+# ── Predefined channel presets ──────────────────────────────────────────────
+#
+# These are convenient, ready-made channel instances. The nonlinear presets
+# (SRS / *-CARS / *-SHG) carry no wavelengths -- loaders fill those in per
+# acquisition (e.g. via ``dataclasses.replace``), which preserves geometry and
+# label while producing a distinct, fully-specified channel.
+
+BRIGHTFIELD = BrightfieldChannel()
+DIC = DICChannel()
+PHASE = PhaseChannel()
+DAPI = FluorescenceChannel(excitation_nm=405, emission_nm=450, label="DAPI")
+FITC = FluorescenceChannel(excitation_nm=488, emission_nm=512, label="FITC")
+TRITC = FluorescenceChannel(excitation_nm=561, emission_nm=595, label="TRITC")
+CY5 = FluorescenceChannel(excitation_nm=640, emission_nm=665, label="CY5")
+SRS = SRSChannel()
+E_CARS = CARSChannel(geometry=DetectionGeometry.EPI)
+F_CARS = CARSChannel(geometry=DetectionGeometry.FORWARD)
+E_SHG = SHGChannel(geometry=DetectionGeometry.EPI)
+F_SHG = SHGChannel(geometry=DetectionGeometry.FORWARD)
 
 CHANNELS: dict[str, Channel] = {
     ch.name: ch

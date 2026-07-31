@@ -1,6 +1,7 @@
 from __future__ import annotations
 import warnings
 import xml.etree.ElementTree as ET
+from dataclasses import replace
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -10,7 +11,16 @@ import liffile
 import numpy as np
 from pydantic import BaseModel, computed_field
 
-from .channels import BRIGHTFIELD, E_CARS, E_SHG, F_CARS, F_SHG, SRS, Channel
+from .channels import (
+    BRIGHTFIELD,
+    E_CARS,
+    E_SHG,
+    F_CARS,
+    SRS,
+    Channel,
+    FluorescenceChannel,
+    Modality,
+)
 from .exceptions import MetadataWarning
 from .metadata_structures import (
     AcquisitionSettings,
@@ -305,8 +315,8 @@ class _LeicaMetadataParser:
     # Set of detectors used for either the UV (405 nm) or WLL laser
     _FLUORESCENCE_DETECTORS = {"HyD S 1", "HyD S 2", "HyD X 3", "HyD R 4"}
 
-    # Set of channels that utilize the CRS laser
-    _CRS_LASER_MODALITIES = {SRS, E_CARS, F_CARS, E_SHG, F_SHG}
+    # Modalities driven by the CRS laser (wavelengths are computed per acquisition)
+    _NONLINEAR_MODALITIES = {Modality.SRS, Modality.CARS, Modality.SHG}
 
     # Map of LIF dimension key → DimensionFlag for get_dimension_flags
     _DIM_FLAG_MAP: dict[str, DimensionFlags] = {
@@ -519,18 +529,19 @@ class _LeicaMetadataParser:
         # Can reasonably infer channel only in the case where either the UV or WLL laser is ON
         excitation_wavelength_nm = self.extract_wavelength_value(laser_state.WavelengthDouble)
         try:
-            return Channel.from_wavelength(
-                excitation_wavelength_nm, name=laser_state.LightSourceType.name
+            return FluorescenceChannel(
+                excitation_nm=excitation_wavelength_nm,
+                label=laser_state.LightSourceType.name,
             )
         except ValueError:
             warnings.warn(
-                f"Parsed excitation wavelength {excitation_wavelength_nm} nm outside accepted "
-                "range for Channel inference. Pass a Channel instance to prevent this warning.",
+                f"Parsed excitation wavelength {excitation_wavelength_nm} nm is not a valid "
+                "excitation for Channel inference. Pass a Channel instance to prevent this "
+                "warning.",
                 MetadataWarning,
                 stacklevel=2,
             )
-            # NIR lasers are typically in the 700-1400nm range, assign a dark red color
-            return Channel(name=laser_state.LightSourceType.name, color="#8B0000")
+            return FluorescenceChannel(label=laser_state.LightSourceType.name)
 
     def infer_channel_from_detector(
         self,
@@ -560,11 +571,11 @@ class _LeicaMetadataParser:
             return self.infer_channel_from_laser_state(laser_state)
 
         # Try exact match with beam route, then fall back to match without beam route
-        channel = self._CHANNEL_DETECTION_MAP.get(
+        template = self._CHANNEL_DETECTION_MAP.get(
             (detector_name, beam_route)
         ) or self._CHANNEL_DETECTION_MAP.get((detector_name, None))
 
-        if channel is None:
+        if template is None:
             raise ValueError(
                 f"Could not determine channel from DetectorName: {detector_name}, "
                 f"BeamRoute: {beam_route}. Please provide channels list explicitly."
@@ -577,31 +588,32 @@ class _LeicaMetadataParser:
         if warning_msg:
             warnings.warn(warning_msg, MetadataWarning, stacklevel=2)
 
-        # For SRS, (E/F)CARS, and (E/F)SHG calculate wavelengths from CRS laser
-        if channel in self._CRS_LASER_MODALITIES:
+        # For SRS, (E/F)CARS, and (E/F)SHG calculate wavelengths from the CRS laser.
+        # ``replace`` preserves the template's modality, detection geometry, and label
+        # while filling in the per-acquisition wavelengths.
+        if template.modality in self._NONLINEAR_MODALITIES:
             laser_state = self.laser_system_state.get_laser_by_type(_LightSourceType.CRS)
             pump_wavelength_nm = self.extract_wavelength_value(laser_state.WavelengthDouble)
 
-            if channel in (E_CARS, F_CARS):
+            if template.modality is Modality.CARS:
                 # CARS detects anti-Stokes wavelength
                 emission_nm = float(
                     calculate_antistokes_wavelength(pump_wavelength_nm, CRS_STOKES_WAVELENGTH_NM)
                 )
-            elif channel in (E_SHG, F_SHG):
+            elif template.modality is Modality.SHG:
                 # SHG emission wavelength is exactly half the excitation wavelength
                 emission_nm = pump_wavelength_nm / 2
             else:  # SRS
                 # SRS is loss-based, emission wavelength equals excitation
                 emission_nm = pump_wavelength_nm
 
-            return Channel(
-                name=channel.name,
+            return replace(
+                template,
                 excitation_nm=round(pump_wavelength_nm, 1),
                 emission_nm=round(emission_nm, 1),
-                color=channel.color,
             )
 
-        return channel
+        return template
 
     def get_dimension_flags(self) -> DimensionFlags:
         """Determine dimension flags from LIF file for a single channel.

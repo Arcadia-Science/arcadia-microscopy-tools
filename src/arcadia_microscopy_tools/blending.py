@@ -8,6 +8,7 @@ import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
 
 from .channels import Channel
+from .display import channel_color
 from .typing import Float64Array
 
 
@@ -34,7 +35,7 @@ class Layer:
     """A single layer in a fluorescence overlay.
 
     Args:
-        channel: Channel providing color and identity.
+        channel: Channel providing identity (and, by default, the display color).
         intensities: 2D array of intensity values in [0, 1].
         opacity: Global opacity multiplier in [0, 1]. Default is 1 (fully opaque).
         zero_transparent: If True (default), the colormap fades from fully
@@ -44,6 +45,9 @@ class Layer:
             background to show through).
         blend_mode: How this layer is composited onto the canvas.
             Default is ``ALPHA``.
+        color: Optional hex color override (e.g. ``"#FF0000"``). When None
+            (default), the color is derived from the channel via
+            :func:`~arcadia_microscopy_tools.display.channel_color`.
     """
 
     channel: Channel
@@ -51,6 +55,12 @@ class Layer:
     opacity: float = 1.0
     zero_transparent: bool = True
     blend_mode: BlendMode = BlendMode.ALPHA
+    color: str | None = None
+
+    @property
+    def display_color(self) -> str:
+        """Resolved display color: the explicit override or the channel default."""
+        return self.color or channel_color(self.channel)
 
     def __post_init__(self) -> None:
         if self.intensities.ndim != 2:
@@ -162,7 +172,7 @@ def create_overlay(
                 f"{layer.intensities.shape}, but background has shape "
                 f"{background.shape}."
             )
-        cmap = _build_colormap(layer.channel.color, layer.zero_transparent)
+        cmap = _build_colormap(layer.display_color, layer.zero_transparent)
         rgba = cmap(layer.intensities)
         rgb = rgba[..., :3]
         alpha = layer.opacity * rgba[..., 3:4]

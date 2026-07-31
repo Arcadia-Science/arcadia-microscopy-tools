@@ -1,77 +1,154 @@
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
 from arcadia_microscopy_tools.channels import (
+    BRIGHTFIELD,
     CHANNELS,
     DAPI,
+    E_CARS,
+    F_CARS,
+    SRS,
+    BrightfieldChannel,
+    CARSChannel,
     Channel,
-    wavelength_to_hex,
+    DetectionGeometry,
+    FluorescenceChannel,
+    Modality,
+    SHGChannel,
+    SpectralChannel,
 )
+from arcadia_microscopy_tools.display import channel_color, wavelength_to_hex
 
 
-class TestChannel:
+class TestChannelHierarchy:
+    def test_base_channel_is_abstract(self):
+        with pytest.raises(TypeError):
+            Channel()  # type: ignore[abstract]
+
+    def test_spectral_channel_is_abstract(self):
+        with pytest.raises(TypeError):
+            SpectralChannel()  # type: ignore[abstract]
+
+    def test_fluorescence_is_spectral(self):
+        assert isinstance(DAPI, SpectralChannel)
+
+    def test_brightfield_is_not_spectral(self):
+        assert not isinstance(BRIGHTFIELD, SpectralChannel)
+
+
+class TestFluorescenceChannel:
     def test_basic_creation(self):
-        ch = Channel("GFP", "#00FF00", excitation_nm=488, emission_nm=509)
+        ch = FluorescenceChannel(excitation_nm=488, emission_nm=509, label="GFP")
         assert ch.name == "GFP"
-        assert ch.color == "#00FF00"
         assert ch.excitation_nm == 488
         assert ch.emission_nm == 509
+        assert ch.modality is Modality.FLUORESCENCE
+        assert ch.geometry is DetectionGeometry.EPI
 
-    def test_color_only(self):
-        ch = Channel("BF", "#FFFFFF")
-        assert ch.excitation_nm is None
-        assert ch.emission_nm is None
+    def test_default_name_from_bands(self):
+        ch = FluorescenceChannel(excitation_nm=488, emission_nm=512)
+        assert ch.name == "Ex488/Em512"
 
-    def test_invalid_color_raises(self):
-        with pytest.raises(ValueError, match="hex code"):
-            Channel("Bad", "not-a-color")
+    def test_default_name_excitation_only(self):
+        assert FluorescenceChannel(excitation_nm=405).name == "Ex405"
+
+    def test_default_name_emission_only(self):
+        assert FluorescenceChannel(emission_nm=520).name == "Em520"
 
     def test_invalid_excitation_raises(self):
         with pytest.raises(ValueError, match="excitation_nm must be positive"):
-            Channel("Bad", "#FF0000", excitation_nm=-10)
+            FluorescenceChannel(excitation_nm=-10)
 
     def test_invalid_emission_raises(self):
         with pytest.raises(ValueError, match="emission_nm must be positive"):
-            Channel("Bad", "#FF0000", emission_nm=0)
+            FluorescenceChannel(emission_nm=0)
 
     def test_frozen(self):
-        ch = Channel("Frozen", "#AABBCC")
         with pytest.raises(FrozenInstanceError):
-            ch.name = "Changed"  # type: ignore
+            DAPI.excitation_nm = 999  # type: ignore[misc]
 
-    def test_equality(self):
-        a = Channel("X", "#111111", excitation_nm=405)
-        b = Channel("X", "#111111", excitation_nm=405)
+
+class TestIdentity:
+    def test_equality_ignores_label(self):
+        a = FluorescenceChannel(excitation_nm=405, emission_nm=450, label="DAPI")
+        b = FluorescenceChannel(excitation_nm=405, emission_nm=450, label="Hoechst")
         assert a == b
 
-    def test_hashable(self):
-        d = {DAPI: "value"}
-        assert d[DAPI] == "value"
+    def test_equality_uses_bands(self):
+        a = FluorescenceChannel(excitation_nm=405, emission_nm=450)
+        b = FluorescenceChannel(excitation_nm=405, emission_nm=451)
+        assert a != b
+
+    def test_different_modalities_not_equal(self):
+        assert FluorescenceChannel(excitation_nm=797) != SRS
+
+    def test_hashable_and_label_independent(self):
+        a = FluorescenceChannel(excitation_nm=405, emission_nm=450, label="DAPI")
+        b = FluorescenceChannel(excitation_nm=405, emission_nm=450)
+        assert hash(a) == hash(b)
+        assert {a: "value"}[b] == "value"
+
+    def test_label_free_instances_equal(self):
+        assert BrightfieldChannel() == BRIGHTFIELD
+        assert hash(BrightfieldChannel()) == hash(BRIGHTFIELD)
 
 
-class TestFromWavelength:
-    def test_excitation_default(self):
-        ch = Channel.from_wavelength(488)
-        assert ch.name == "488nm"
-        assert ch.excitation_nm == 488
-        assert ch.emission_nm is None
-        assert ch.color.startswith("#")
+class TestDetectionGeometry:
+    def test_geometry_distinguishes_cars(self):
+        assert E_CARS != F_CARS
+        assert E_CARS.name == "E-CARS"
+        assert F_CARS.name == "F-CARS"
 
-    def test_emission(self):
-        ch = Channel.from_wavelength(520, is_excitation=False)
-        assert ch.emission_nm == 520
-        assert ch.excitation_nm is None
+    def test_cars_geometry_values(self):
+        assert E_CARS.geometry is DetectionGeometry.EPI
+        assert F_CARS.geometry is DetectionGeometry.FORWARD
 
-    def test_custom_name(self):
-        ch = Channel.from_wavelength(488, name="GFP")
-        assert ch.name == "GFP"
+    def test_shg_names(self):
+        assert SHGChannel(geometry=DetectionGeometry.EPI).name == "E-SHG"
+        assert SHGChannel(geometry=DetectionGeometry.FORWARD).name == "F-SHG"
 
-    def test_out_of_range_raises(self):
-        with pytest.raises(ValueError, match="360.*780"):
-            Channel.from_wavelength(200)
-        with pytest.raises(ValueError, match="360.*780"):
-            Channel.from_wavelength(1000)
+
+class TestLoaderRebuild:
+    """Mimics how loaders fill in per-acquisition wavelengths via replace()."""
+
+    def test_replace_preserves_geometry_and_modality(self):
+        built = replace(E_CARS, excitation_nm=797.0, emission_nm=648.0)
+        assert built.modality is Modality.CARS
+        assert built.geometry is DetectionGeometry.EPI
+        assert built.excitation_nm == 797.0
+        assert built.emission_nm == 648.0
+        assert isinstance(built, CARSChannel)
+
+    def test_rebuilt_differs_from_template(self):
+        built = replace(SRS, excitation_nm=797.0, emission_nm=797.0)
+        assert built != SRS
+        assert built.modality is SRS.modality
+
+
+class TestPredefinedChannels:
+    def test_channels_dict_contains_expected(self):
+        assert "DAPI" in CHANNELS
+        assert "BRIGHTFIELD" in CHANNELS
+        assert "E-CARS" in CHANNELS
+        assert len(CHANNELS) == 12
+
+    def test_predefined_channel_properties(self):
+        assert DAPI.excitation_nm == 405
+        assert DAPI.emission_nm == 450
+        assert DAPI.modality is Modality.FLUORESCENCE
+
+
+class TestChannelColor:
+    def test_label_free_color(self):
+        assert channel_color(BRIGHTFIELD) == "#FFFFFF"
+
+    def test_fluorescence_derives_from_emission(self):
+        assert channel_color(DAPI) == wavelength_to_hex(450)
+
+    def test_out_of_visible_falls_back(self):
+        # SRS template has no wavelengths -> NIR fallback color.
+        assert channel_color(SRS) == "#8B0000"
 
 
 class TestWavelengthToHex:
@@ -89,16 +166,3 @@ class TestWavelengthToHex:
             wavelength_to_hex(350)
         with pytest.raises(ValueError):
             wavelength_to_hex(800)
-
-
-class TestPredefinedChannels:
-    def test_channels_dict_contains_all(self):
-        assert "DAPI" in CHANNELS
-        assert "BRIGHTFIELD" in CHANNELS
-        assert "CY5" in CHANNELS
-        assert len(CHANNELS) == 12
-
-    def test_predefined_channel_properties(self):
-        assert DAPI.excitation_nm == 405
-        assert DAPI.emission_nm == 450
-        assert DAPI.color == "#0033FF"

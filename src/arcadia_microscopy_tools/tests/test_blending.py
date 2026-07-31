@@ -11,10 +11,10 @@ from arcadia_microscopy_tools.blending import (
     create_overlay,
     overlay_channels,
 )
-from arcadia_microscopy_tools.channels import Channel
+from arcadia_microscopy_tools.channels import FluorescenceChannel
 
-CHAN_BLUE = Channel("Blue", "#0000FF")
-CHAN_GREEN = Channel("Green", "#00FF00")
+CHAN_BLUE = FluorescenceChannel(excitation_nm=405, emission_nm=450, label="Blue")
+CHAN_GREEN = FluorescenceChannel(excitation_nm=488, emission_nm=520, label="Green")
 
 
 @pytest.fixture
