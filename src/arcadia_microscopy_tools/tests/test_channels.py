@@ -66,7 +66,7 @@ class TestFluorescenceChannel:
 
     def test_frozen(self):
         with pytest.raises(FrozenInstanceError):
-            DAPI.excitation_nm = 999  # type: ignore[misc]
+            DAPI.excitation_nm = 999  # ty: ignore[invalid-assignment]
 
 
 class TestIdentity:

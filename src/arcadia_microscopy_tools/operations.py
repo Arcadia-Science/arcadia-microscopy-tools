@@ -49,8 +49,8 @@ def rescale_by_percentile(
     # Apply rescaling
     return ski.exposure.rescale_intensity(
         intensities,
-        in_range=(p1, p2),  # type: ignore
-        out_range=out_range,  # type: ignore
+        in_range=(p1, p2),
+        out_range=out_range,
     )
 
 
