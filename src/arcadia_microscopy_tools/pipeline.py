@@ -151,7 +151,7 @@ class Pipeline:
                 processed = list(executor.map(self._apply_operations, intensities))
             if self.preserve_dtype:
                 return np.array(processed, dtype=intensities.dtype)
-            return np.array(processed)  # type: ignore
+            return np.array(processed)
 
         result = self._apply_operations(intensities)
         if self.preserve_dtype and result.dtype != intensities.dtype:
