@@ -22,6 +22,10 @@ class ImageOperation:
 
     __slots__ = ("func", "args", "kwargs")
 
+    func: Callable[..., ScalarArray]
+    args: tuple[object, ...]
+    kwargs: dict[str, object]
+
     def __init__(self, func: Callable[..., ScalarArray], *args: object, **kwargs: object) -> None:
         object.__setattr__(self, "func", func)
         object.__setattr__(self, "args", args)
@@ -57,7 +61,8 @@ class ImageOperation:
         args_repr = [repr(arg) for arg in self.args]
         kwargs_repr = [f"{key}={repr(value)}" for key, value in self.kwargs.items()]
         args_kwargs_repr = ", ".join(args_repr + kwargs_repr)
-        return f"{self.func.__name__}({args_kwargs_repr})"
+        func_name = getattr(self.func, "__name__", repr(self.func))
+        return f"{func_name}({args_kwargs_repr})"
 
 
 @dataclass
@@ -145,12 +150,12 @@ class Pipeline:
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 processed = list(executor.map(self._apply_operations, intensities))
             if self.preserve_dtype:
-                return np.array(processed, dtype=intensities.dtype)  # type: ignore
-            return np.array(processed)  # type: ignore
+                return np.array(processed, dtype=intensities.dtype)
+            return np.array(processed)
 
         result = self._apply_operations(intensities)
         if self.preserve_dtype and result.dtype != intensities.dtype:
-            return result.astype(intensities.dtype)  # type: ignore
+            return result.astype(intensities.dtype)
         return result
 
     def __len__(self) -> int:

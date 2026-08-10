@@ -60,7 +60,7 @@ def _process_mask(
             )
 
     if label_image.dtype == bool:
-        return ski.measure.label(label_image).astype(np.int64)  # type: ignore
+        return ski.measure.label(label_image).astype(np.int64)
     # Relabel cells in case some were removed by edge filtering
     return ski.segmentation.relabel_sequential(label_image)[0].astype(np.int64)
 

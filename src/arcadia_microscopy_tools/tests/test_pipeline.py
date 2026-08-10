@@ -145,7 +145,7 @@ class TestPipeline:
     def test_operations_coerced_to_list(self):
         """Test that a tuple of operations is converted to a list."""
         ops = (ImageOperation(double_intensity),)
-        pipeline = Pipeline(operations=ops)  # type: ignore[arg-type]
+        pipeline = Pipeline(operations=ops)  # ty: ignore[invalid-argument-type]
         assert isinstance(pipeline.operations, list)
 
     def test_max_workers_validation(self):
@@ -160,12 +160,12 @@ class TestPipeline:
     def test_non_callable_operation_raises(self):
         """Test that non-callable operations raise TypeError."""
         with pytest.raises(TypeError, match="All operations must be callable"):
-            Pipeline(operations=("not_a_function",))  # type: ignore[arg-type]
+            Pipeline(operations=("not_a_function",))  # ty: ignore[invalid-argument-type]
 
     def test_mixed_callable_non_callable_raises(self):
         """Test that a mix of callable and non-callable operations raises TypeError."""
         with pytest.raises(TypeError, match="All operations must be callable"):
-            Pipeline(operations=(ImageOperation(double_intensity), 42))  # type: ignore[arg-type]
+            Pipeline(operations=(ImageOperation(double_intensity), 42))  # ty: ignore[invalid-argument-type]
 
 
 class TestPipelineParallel:
