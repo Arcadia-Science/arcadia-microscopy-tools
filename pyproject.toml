@@ -38,8 +38,8 @@ all = [
 dev = [
     "jupyter>=1.1.1",
     "pytest>=8.4.1",
-    "pyright>=1.1.407",
     "ruff>=0.12.7",
+    "ty>=0.0.69",
 ]
 
 
@@ -77,6 +77,9 @@ line-ending = "auto"
 order-by-type = true
 no-lines-before = ["future", "standard-library"]
 
-[tool.pyright]
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
 include = ["src"]
 exclude = ["build", "dist", ".venv", "**/__pycache__"]

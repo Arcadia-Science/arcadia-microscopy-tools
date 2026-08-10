@@ -17,7 +17,7 @@ format:
 
 .PHONY: typecheck
 typecheck:
-	pyright --project pyproject.toml .
+	ty check
 
 .PHONY: pre-commit
 pre-commit:
